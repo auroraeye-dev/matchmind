@@ -10,7 +10,8 @@ MatchMind ingests a live synthetic match, either as an event feed or as a 10 Hz 
 🔴 **Live demo:** https://ca-matchmind-fh62l3n45y67i.wittyriver-305907d2.eastus2.azurecontainerapps.io. It runs on Azure Container Apps with Microsoft Foundry (`gpt-5-mini`). Press **Kick off**; no login is needed.
 **MCP endpoint:** `https://ca-matchmind-fh62l3n45y67i.wittyriver-305907d2.eastus2.azurecontainerapps.io/mcp/`
 
-📄 **Submission kit** (pitch, video script, judge instructions): [`docs/SUBMISSION.md`](docs/SUBMISSION.md)
+📄 **Submission kit** (pitch, video script, judge instructions): [`docs/SUBMISSION.md`](docs/SUBMISSION.md)  
+✅ **Rules compliance checklist:** [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md)
 
 ## What you can do in the match centre
 

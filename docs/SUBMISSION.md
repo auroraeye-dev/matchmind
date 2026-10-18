@@ -59,7 +59,7 @@ It is also eligible for the Grand Prize.
 | GitHub Copilot agent mode | Development with repo instructions and MCP servers | `.github/copilot-instructions.md` |
 | GitHub Copilot SDK | Match Report agent that researches through MCP tools | `copilot_reporter.py` |
 | GitHub CLI | Repo setup, publishing reports as gists, `azd pipeline config` | `copilot_reporter.py` |
-| Microsoft Fabric | Eventstream sink into an Eventhouse, with KQL analytics | `integrations/sinks.py`, `fabric/matchmind.kql` |
+| Microsoft Fabric | **Live:** every event and agent moment streams through an Eventstream into an Eventhouse (`matchmind_raw`), with KQL analytics | `integrations/sinks.py`, `infra/connect-fabric.sh`, `fabric/matchmind.kql` |
 | Azure Apps and AI services | Container Apps, Container Registry, AI Translator, Log Analytics, Application Insights (OpenTelemetry) | `infra/main.bicep`, `integrations/translator.py`, `telemetry.py` |
 | Azure databases | Cosmos DB (serverless, Entra-only) storing matches, moments and overlays | `integrations/sinks.py` |
 

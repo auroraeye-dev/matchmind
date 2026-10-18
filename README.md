@@ -181,14 +181,18 @@ It builds the image in Azure Container Registry. On free-trial subscriptions, wh
 
 **Model choice:** check model quota with `az cognitiveservices usage list -l <region>`. Free trials usually have `GlobalStandard` quota for `gpt-5-mini`.
 
-**Fabric (optional):**
-1. In Fabric, create an Eventstream with a **Custom endpoint** source and an **Eventhouse** destination.
-2. Copy the endpoint's connection string, then run:
+**Microsoft Fabric (live in the demo deployment):**
+
+The live app streams every raw event and every agent moment into Fabric. Flat JSON rows go through an Eventstream into an Eventhouse table, `matchmind_raw`.
+
+1. In Fabric, create an **Eventhouse**, then an **Eventstream**:
+   - source: **Custom endpoint**
+   - destination: the Eventhouse, using **Direct ingestion** into the table `matchmind_raw` (JSON format)
+2. Copy the source's **Connection string-primary key**, then run:
    ```bash
-   azd env set FABRIC_EVENTSTREAM_CONNECTION_STRING "<conn>"
-   azd up
+   infra/connect-fabric.sh      # reads the string without echo and stores it only as a Container App secret
    ```
-3. Use the queries in [`fabric/matchmind.kql`](fabric/matchmind.kql).
+3. Run the analytics in [`fabric/matchmind.kql`](fabric/matchmind.kql): the xG race, momentum and chaos timelines, the hardest passes and moments by importance.
 
 ## Synthetic data
 

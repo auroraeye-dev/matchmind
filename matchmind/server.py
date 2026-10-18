@@ -62,7 +62,14 @@ async def no_stale_assets(request, call_next):
     return response
 setup_telemetry()
 settings = get_settings()
-llm = ResilientLLM(build_provider(settings), settings.llm_timeout_s, settings.llm_max_concurrency)
+llm = ResilientLLM(build_provider(settings), settings.llm_timeout_s, settings.llm_max_concurrency,
+                   daily_budget=int(os.getenv("LLM_DAILY_CALL_BUDGET", "1500")) or None)
+offline_llm = ResilientLLM(None)
+# Public-demo guards: only a few concurrent sessions use the model (the rest run on the rules path),
+# and a hard cap keeps the container healthy under load.
+MAX_AI_SESSIONS = int(os.getenv("MAX_AI_SESSIONS", "4"))
+MAX_SESSIONS = int(os.getenv("MAX_SESSIONS", "40"))
+live_sessions = {"all": 0, "ai": 0}
 sinks = SinkHub(sinks_from_env())
 translator = translator_from_env()
 recorder = Recorder()
@@ -70,7 +77,7 @@ recorder = Recorder()
 
 @app.get("/api/health")
 async def health():
-    return {"ok": True, "llm": llm.status(), "translator": bool(translator), "sinks": sinks.stats,
+    return {"ok": True, "llm": llm.status(), "live_sessions": live_sessions, "translator": bool(translator), "sinks": sinks.stats,
             "telemetry": telemetry_enabled(), "sessions": len(recorder.sessions)}
 
 
@@ -90,6 +97,22 @@ async def live(ws: WebSocket):
     """Client sends {"seed", "speed", "personas": [...]} then may send
     {"type": "persona", "persona": {...}} / {"type": "speed", "speed": n} / {"type": "pause"|"resume"}."""
     await ws.accept()
+    if live_sessions["all"] >= MAX_SESSIONS:
+        await ws.send_json({"type": "end", "llm": llm.status(), "busy": True})
+        await ws.close()
+        return
+    use_ai = live_sessions["ai"] < MAX_AI_SESSIONS
+    live_sessions["all"] += 1
+    live_sessions["ai"] += int(use_ai)
+    session_llm = llm if use_ai else offline_llm
+    try:
+        await _live(ws, session_llm)
+    finally:
+        live_sessions["all"] -= 1
+        live_sessions["ai"] -= int(use_ai)
+
+
+async def _live(ws: WebSocket, session_llm: ResilientLLM) -> None:
     cfg = await ws.receive_json()
     seed = int(cfg.get("seed", 7))
     control = {"speed": float(cfg.get("speed", 30)), "paused": False}
@@ -108,8 +131,8 @@ async def live(ws: WebSocket):
         async with lock:
             await ws.send_json(msg)
 
-    orch = Orchestrator(meta, personas, publish, settings=settings, llm=llm, translator=translator)
-    await publish({"type": "meta", "meta": meta.model_dump(mode="json"), "llm": llm.status(), "feed": feed,
+    orch = Orchestrator(meta, personas, publish, settings=settings, llm=session_llm, translator=translator)
+    await publish({"type": "meta", "meta": meta.model_dump(mode="json"), "llm": session_llm.status(), "feed": feed,
                    "session_id": session.id})
 
     async def reader() -> None:
@@ -142,7 +165,7 @@ async def live(ws: WebSocket):
             if read_task.done():
                 break
         await orch.drain()
-        await publish({"type": "end", "llm": llm.status()})
+        await publish({"type": "end", "llm": session_llm.status()})
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:

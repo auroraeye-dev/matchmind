@@ -141,7 +141,7 @@ class ResilientLLM:
     """
 
     def __init__(self, provider: LLMProvider | None, timeout_s: float = 6.0, max_concurrency: int = 4,
-                 max_failures: int = 3, cooldown_s: float = 60.0):
+                 max_failures: int = 3, cooldown_s: float = 60.0, daily_budget: int | None = None):
         self.provider = provider
         self.timeout_s = timeout_s
         self.sem = asyncio.Semaphore(max_concurrency)
@@ -151,14 +151,28 @@ class ResilientLLM:
         self.open_until = 0.0
         self.calls = 0
         self.errors = 0
+        # Cost guard for a public deployment: past this many model calls per UTC day, agents use rules.
+        self.daily_budget = daily_budget
+        self._day = ""
+        self.calls_today = 0
 
     @property
     def name(self) -> str:
         return self.provider.name if self.provider else "offline"
 
+    def _roll_day(self) -> None:
+        today = time.strftime("%Y-%m-%d", time.gmtime())
+        if today != self._day:
+            self._day, self.calls_today = today, 0
+
+    @property
+    def over_budget(self) -> bool:
+        self._roll_day()
+        return self.daily_budget is not None and self.calls_today >= self.daily_budget
+
     @property
     def available(self) -> bool:
-        return self.provider is not None and time.monotonic() >= self.open_until
+        return self.provider is not None and time.monotonic() >= self.open_until and not self.over_budget
 
     def status(self) -> dict[str, Any]:
         return {
@@ -167,13 +181,17 @@ class ResilientLLM:
             "breaker_open": self.provider is not None and time.monotonic() < self.open_until,
             "calls": self.calls,
             "errors": self.errors,
+            "calls_today": self.calls_today,
+            "daily_budget": self.daily_budget,
         }
 
     async def complete_json(self, system: str, user: str, max_tokens: int = 350, agent: str = "agent") -> dict[str, Any]:
         if not self.available:
-            raise LLMUnavailable("offline" if self.provider is None else "circuit open")
+            reason = "offline" if self.provider is None else "daily AI budget reached" if self.over_budget else "circuit open"
+            raise LLMUnavailable(reason)
         async with self.sem:
             self.calls += 1
+            self.calls_today += 1
             try:
                 out = await asyncio.wait_for(self.provider.complete_json(system, user, max_tokens, agent=agent), self.timeout_s)
             except Exception as exc:

@@ -310,3 +310,27 @@ def test_guardrail_ignores_confidence_and_window():
 
     payload = {"evidence": {"shots_5min": 2, "possession_last_5min_pct": 62}}
     assert check_grounded({"why": "62% of the ball over the last 5 minutes", "confidence": 0.86}, payload) == []
+
+
+async def test_daily_ai_budget_falls_back_to_rules():
+    fake = FakeLLM()
+    llm = ResilientLLM(fake, timeout_s=2, daily_budget=3)
+    _, out = await _run(_personas, llm)
+    assert fake.calls == 3, "no model calls past the daily budget"
+    assert llm.status()["calls_today"] == 3 and not llm.available
+    notes = [m["trace"]["note"] for m in out if m["type"] == "trace" and m["trace"]["status"] == "fallback"]
+    assert any("daily AI budget" in n for n in notes)
+    assert any(m["type"] == "overlay" and m["overlay"]["kind"] == "recap" for m in out)
+
+
+def test_sessions_beyond_ai_cap_run_on_rules(monkeypatch):
+    monkeypatch.setattr("matchmind.server.MAX_GAP_S", 0.0)
+    from matchmind import server
+
+    monkeypatch.setattr(server, "MAX_AI_SESSIONS", 0)
+    client = TestClient(server.app)
+    with client.websocket_connect("/ws/live") as ws:
+        ws.send_json({"seed": 2, "speed": 600, "personas": [{"id": "a", "mode": "analyst"}]})
+        first = ws.receive_json()
+        assert first["type"] == "meta" and first["llm"]["provider"] == "offline"
+    assert server.live_sessions == {"all": 0, "ai": 0}

@@ -34,10 +34,17 @@ class TeamStats:
     yellow_cards: int = 0
     corners: int = 0
     possession_s: float = 0.0
+    fastest_shot_kmh: float = 0.0
+    top_sprint_kmh: float = 0.0
+    hardest_pass_difficulty: float = 0.0
 
     @property
     def pass_accuracy(self) -> float:
         return self.passes_completed / self.passes if self.passes else 0.0
+
+    @property
+    def defensive_actions(self) -> int:
+        return self.tackles_won + self.interceptions + self.fouls
 
 
 @dataclass
@@ -107,6 +114,11 @@ class MatchState:
         total = sum(ts.possession_s for ts in self.teams.values()) or 1.0
         return {tid: round(100 * ts.possession_s / total, 1) for tid, ts in self.teams.items()}
 
+    def ppda(self, tid: str) -> float | None:
+        """Passes allowed per defensive action: opponent passes / our tackles+interceptions+fouls. Lower = harder press."""
+        da = self.teams[tid].defensive_actions
+        return round(self.teams[self.other(tid)].passes / da, 1) if da else None
+
     def scoreline(self) -> str:
         h, a = self.meta.home, self.meta.away
         return f"{h.name} {self.score[h.id]}-{self.score[a.id]} {a.name}"
@@ -133,7 +145,10 @@ class MatchState:
                 "possession_pct": poss.get(tid, 50.0),
                 "pressures": ts.pressures,
                 "tackles_won": ts.tackles_won,
+                "ppda": self.ppda(tid),
+                "fastest_shot_kmh": round(ts.fastest_shot_kmh, 1),
             }
+        out["rhythm_events_per_min"] = round(self.rhythm_epm, 1)
         return out
 
     def public_stats(self) -> dict[str, Any]:
@@ -148,7 +163,7 @@ class MatchState:
             "possession_pct": poss,
             "possession_5m": self.possession_5m,
             "teams": {
-                tid: {**asdict(ts), "xg": round(ts.xg, 2), "pass_accuracy": round(ts.pass_accuracy, 3)}
+                tid: {**asdict(ts), "xg": round(ts.xg, 2), "pass_accuracy": round(ts.pass_accuracy, 3), "ppda": self.ppda(tid)}
                 for tid, ts in self.teams.items()
             },
         }
@@ -172,6 +187,7 @@ class Interpreter:
         self._momentum_side = 0
         self._milestones: set[str] = set()
         self._next_stat_check = 600.0
+        self._rhythm_base = 0.0  # slow-moving baseline of events/min
         self._n = 0
 
     # ------------------------------------------------------------------ public
@@ -197,6 +213,8 @@ class Interpreter:
             ps.touches += 1
             if ev.player_speed_kmh:
                 ps.top_speed_kmh = max(ps.top_speed_kmh, ev.player_speed_kmh)
+                if ev.team_id in s.teams and ev.type.value in ("carry", "pressure", "tackle", "interception"):
+                    s.teams[ev.team_id].top_sprint_kmh = max(s.teams[ev.team_id].top_sprint_kmh, ev.player_speed_kmh)
             if ev.distance_covered_km is not None:
                 ps.distance_km = ev.distance_covered_km
 
@@ -231,6 +249,7 @@ class Interpreter:
             ps.passes_completed += 1
             ts.pass_distance_m += length
             ps.best_pass_difficulty = max(ps.best_pass_difficulty, diff)
+            ts.hardest_pass_difficulty = max(ts.hardest_pass_difficulty, diff)
             start_prog = (ev.x if d == 1 else L - ev.x) / L
             end_prog = (ev.end_x if d == 1 else L - ev.end_x) / L
             threat = max(0.0, end_prog - start_prog) + (0.08 if end_prog > 0.66 else 0.0)
@@ -283,6 +302,7 @@ class Interpreter:
         ps.shots += 1
         ts.xg += ev.xg or 0
         ps.xg += ev.xg or 0
+        ts.fastest_shot_kmh = max(ts.fastest_shot_kmh, ev.ball_speed_kmh or 0)
         if ev.outcome in ("goal", "saved"):
             ts.on_target += 1
         self._window.append((ev.t, ev.team_id, "threat", 3 * (ev.xg or 0)))
@@ -458,6 +478,22 @@ class Interpreter:
         elif not side and abs(s.momentum) < 0.1:
             self._momentum_side = 0
 
+        self._rhythm_base = s.rhythm_epm if not self._rhythm_base else 0.995 * self._rhythm_base + 0.005 * s.rhythm_epm
+        ratio = s.rhythm_epm / self._rhythm_base if self._rhythm_base else 1.0
+        if ev.t > 900 and (ratio > 1.3 or ratio < 0.72) and self._cooldown("tempo", ev.t, 900):
+            out.append(
+                self._moment(
+                    "tempo_shift",
+                    ev,
+                    0.42,
+                    ["tactical", "rhythm"],
+                    team_id=None,
+                    direction="up" if ratio > 1 else "down",
+                    events_per_min=round(s.rhythm_epm, 1),
+                    baseline_events_per_min=round(self._rhythm_base, 1),
+                    change_pct=round(100 * (ratio - 1)),
+                )
+            )
         if s.chaos > 0.6 and self._cooldown("chaos", ev.t, 600):
             out.append(
                 self._moment(
@@ -555,7 +591,7 @@ class Interpreter:
             period=ev.period,
             importance=round(min(1.0, importance), 2),
             team_id=team_id,
-            player_id=ev.player_id if mtype not in ("momentum_swing", "chaos_phase", "control_phase", "stat_check", "half_time", "full_time") else None,
+            player_id=ev.player_id if mtype not in ("momentum_swing", "chaos_phase", "control_phase", "tempo_shift", "stat_check", "half_time", "full_time") else None,
             event_id=ev.id,
             tags=tags,
             evidence={k: v for k, v in evidence.items() if v is not None},

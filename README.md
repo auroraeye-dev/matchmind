@@ -9,6 +9,37 @@ MatchMind ingests a live synthetic match, either as an event feed or as a 10 Hz 
 
 📄 **Submission kit** (pitch, video script, judge instructions): [`docs/SUBMISSION.md`](docs/SUBMISSION.md)
 
+## What you can do in the match centre
+
+- **Watch live:**
+  - a club-website-style hero with crests, scorers and an xG line
+  - a match-momentum timeline
+  - a live pitch with ball trails
+  - a shot map (bubble size = xG)
+  - a player heatmap
+- **Two personalised tickers side by side**, for example a studio analyst and a home fan. Change mode, club, followed player, language (6) or favourite metric mid-match.
+- **Player tags that trigger automatically on predefined thresholds:**
+  - a sprint of 25.2 km/h or more
+  - ball speed of 95 km/h or more
+  - distance milestones at 3, 6, 9 and 11 km
+  - every shot
+
+  Each threshold can be configured through env vars. Tags for the player you follow show continuously.
+- **Player cam**, which follows one player all match:
+  - distance covered and top speed
+  - number of sprints
+  - pass accuracy and average pass difficulty
+  - shots and xG, and hardest shot
+  - a touch heatmap
+- **Replay:**
+  - click any marker on the momentum timeline (goal, chance, card, momentum swing) or anywhere on it
+  - the replay theatre re-plays the ball path with a scorebug and that viewer's lower thirds
+  - you can scrub, change speed (1–8×) and step between moments
+- **Highlights reel**, which plays the top moments back to back with title cards.
+- **Broadcast view**, a full-screen TV mode with scorebug, lower thirds, player tags and a news ticker.
+- **Export the overlay feed:** `⬇ Overlay feed` downloads the session's timed, machine-readable overlays (`t_in`/`t_out` in match seconds, priority, anchor, payload) for a broadcast graphics engine. The JSON schema is at `/api/schema/overlay`.
+- **Agent trace:** a live pipeline view of every handoff, fallback and guardrail block.
+
 ## Pipeline
 
 ```mermaid
@@ -39,8 +70,8 @@ flowchart LR
 
 | Agent | Role | Model? |
 |---|---|---|
-| **Vision** | Auto-events from ball tracking: passes, interceptions, tackles, shots, saves, goals | No |
-| **Interpreter** | Stats, xG, pass difficulty, rolling momentum, control vs chaos and rhythm. Detects 14 kinds of moment. | No, deterministic and under 1 ms |
+| **Vision** | Auto-events from ball tracking: passes, interceptions, tackles, shots, saves, goals | Trained shot classifier |
+| **Interpreter** | Stats, xG, pass difficulty, PPDA pressing intensity, ball and shot speed, rolling momentum, control vs chaos and rhythm. Detects 15 kinds of moment, including tempo shifts. | No, deterministic and under 1 ms |
 | **Explainer** | Why a moment matters, citing only numbers from shared state | Foundry, with a rules fallback |
 | **Narrator** | Broadcast commentary, half-time and full-time recaps | Foundry, with a rules fallback |
 | **Personalizer** | Runs per viewer: relevance (mode, club, followed player, metric), tone and language | Foundry or Translator, with a rules fallback |
@@ -57,19 +88,35 @@ flowchart LR
   - Load shedding kicks in when the backlog grows.
   - Translator errors fall back to English.
   - Data sinks never block the stream.
-- **Observability.** Every handoff is traced live in the UI.
+- **Grounding guardrail.** Every number in a model answer must exist in the data that agent was given ([`llm/guardrails.py`](matchmind/llm/guardrails.py)). An invented number rejects the answer, so the agent uses rules instead, and the block shows in the trace.
+- **Observability.** Every handoff is traced live in the UI and exported as OpenTelemetry spans to **Azure Application Insights**, together with Agent Framework's GenAI telemetry (model, tokens, latency).
 
-### Auto-eventing accuracy
+### Auto-eventing: a trained model over the tracking feed
 
-Run `python -m matchmind.cli eval-autoevent` (20 matches, tracking with 0.15 m noise, 1% dropped frames and possessor flicker):
+The Vision agent tracks ball flights, meaning who released the ball and who controlled it next. A **trained shot classifier** decides whether each flight was a shot:
+- **Model:** logistic regression on 13 features (speed, distance and angle to goal, directness, height, receiver)
+- **Training data:** 38k flights from synthetic matches (seeds 101–140)
+- **Implementation:** pure Python, saved in [`vision_model.json`](matchmind/agents/vision_model.json)
 
-| Event | Recall | Precision |
+Goals are decided by physics: the ball has to cross the line between the posts and under the bar.
+
+To retrain and evaluate:
+
+```bash
+python -m matchmind.cli train-vision                 # train (validation F1 0.955 on held-out seeds 201–210)
+python -m matchmind.cli eval-autoevent               # trained model
+python -m matchmind.cli eval-autoevent --rules       # hand-written baseline
+```
+
+Results on 20 held-out matches, from a tracking feed with 0.15 m noise, 1% dropped frames, possessor flicker and lofted passes:
+
+| Event | Rules recall / precision | **Trained model recall / precision** |
 |---|---|---|
-| Goal | **100%** | **100%** |
-| Pass | 99.3% | 99.0% |
-| Save | 94.6% | 100% |
-| Interception / recovery | 94.9% | 74.6% |
-| Shot | 78.8% | 81.1% (blocked shots look like intercepted passes) |
+| Goal | 100% / 100% | **100% / 100%** |
+| Pass | 99.5% / 99.0% | **100% / 99.2%** |
+| Shot | 79.6% / 86.1% | **85.5% / 99.3%** |
+| Save | 95.9% / 100% | **95.0% / 100%** |
+| Interception / recovery | 94.9% / 73.6% | **97.2% / 74.0%** |
 
 The final score was exactly right in **20 of 20** matches.
 
@@ -84,7 +131,7 @@ The final score was exactly right in **20 of 20** matches.
 | **GitHub Copilot SDK** | Match Report agent researches through the MCP tools ([`copilot_reporter.py`](matchmind/copilot_reporter.py)) |
 | **GitHub CLI** | `matchmind report --gist` publishes reports with `gh gist create` |
 | **Microsoft Fabric** | Eventstream sink ([`integrations/sinks.py`](matchmind/integrations/sinks.py)) and KQL analytics ([`fabric/matchmind.kql`](fabric/matchmind.kql)) |
-| **Azure Container Apps / ACR / Log Analytics** | Hosting via `azd up` ([`infra/main.bicep`](infra/main.bicep)) |
+| **Azure Container Apps / ACR / Log Analytics / Application Insights** | Hosting and OpenTelemetry tracing via `azd up` ([`infra/main.bicep`](infra/main.bicep)) |
 | **Azure AI Translator** | Translates rules-path text into the viewer's language ([`integrations/translator.py`](matchmind/integrations/translator.py)) |
 | **Azure Cosmos DB** | Serverless and Entra-only. Stores matches, moments and overlays (partition `/match_id`). |
 | **GitHub Actions** | CI (ruff and pytest) and CD (`azd up` with OIDC) |
@@ -109,6 +156,7 @@ cp .env.example .env     # set FOUNDRY_PROJECT_ENDPOINT and FOUNDRY_MODEL, then 
 python -m matchmind.cli generate --seeds 1 7 42 --out data/            # synthetic datasets (JSONL)
 python -m matchmind.cli run --seed 7 --mode casual --team NBR --lang es # headless pipeline
 python -m matchmind.cli eval-autoevent                                  # Vision agent accuracy
+python -m matchmind.cli train-vision                                    # retrain the shot classifier
 pip install -e ".[copilot]" && python -m matchmind.cli report --seed 7 --gist   # Copilot SDK report
 python -m matchmind.mcp_server                                          # MCP over stdio
 pytest -q

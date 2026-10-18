@@ -16,13 +16,18 @@ Detected events carry extra={"detected": True, "source": "vision"}.
 
 from __future__ import annotations
 
+import json
 import math
+from pathlib import Path
 from typing import Any
 
 from matchmind.schema import EventType, MatchEvent, MatchMeta
 from matchmind.sim.engine import clock_str, shot_xg
 from matchmind.sim.tracking import Frame
 
+MODEL_PATH = Path(__file__).with_name("vision_model.json")
+FEATURES = ["bias", "peak_speed", "start_goal_dist", "end_goal_dist", "directness", "start_xg", "flight_length",
+            "max_height", "to_teammate", "to_opp_keeper", "to_opp_outfield", "over_goal_line", "over_touchline"]
 GOAL_HALF, BAR = 3.66, 2.44
 SHOT_KMH = 48.0
 LINE_EPS = 0.4  # metres past the line before we believe it (tracking noise is ~0.15 m)
@@ -31,8 +36,11 @@ LINE_EPS = 0.4  # metres past the line before we believe it (tracking noise is ~
 class VisionAutoEventer:
     name = "vision"
 
-    def __init__(self, meta: MatchMeta):
+    def __init__(self, meta: MatchMeta, model: dict[str, Any] | bool | None = True, collect: list | None = None):
+        """model=True loads the trained shot classifier if present; None/False uses hand-written rules."""
         self.meta = meta
+        self.model = load_model() if model is True else (model or None)
+        self.collect = collect  # when a list, every flight's features are appended (for training)
         self.home = meta.home.id
         self.gk = {p.id for t in (meta.home, meta.away) for p in t.players if p.position == "GK"}
         self.period, self.period_start = 1, 0.0
@@ -106,11 +114,12 @@ class VisionAutoEventer:
             if self.dead:
                 return out
             if self.flight is None and self.cur is not None:
-                self.flight = {"t0": prev.t, "x0": prev.x, "y0": prev.y, "frm": self.cur, "peak": 0.0}
+                self.flight = {"t0": prev.t, "x0": prev.x, "y0": prev.y, "frm": self.cur, "peak": 0.0, "zmax": 0.0}
                 self.cur = None
             if self.flight is not None:
                 if speed < 200:  # ignore teleports across dropped frames
                     self.flight["peak"] = max(self.flight["peak"], speed)
+                self.flight["zmax"] = max(self.flight["zmax"], f.z)
                 out += self._check_line(f)
             return out
 
@@ -144,6 +153,27 @@ class VisionAutoEventer:
         gx = 105.0 if self._dir(fl["frm"][1]) == 1 else 0.0
         return math.hypot(gx - fl["x0"], 34.0 - fl["y0"])
 
+    def features(self, fl: dict[str, Any], ex: float, ey: float, landing: str) -> list[float]:
+        d = self._dir(fl["frm"][1])
+        gx = 105.0 if d == 1 else 0.0
+        s0 = math.hypot(gx - fl["x0"], 34.0 - fl["y0"])
+        s1 = math.hypot(gx - ex, 34.0 - ey)
+        length = math.hypot(ex - fl["x0"], ey - fl["y0"])
+        xg0 = shot_xg(fl["x0"], fl["y0"], d, 0.0, False)[0]
+        return [1.0, fl["peak"] / 100, min(s0, 80) / 40, min(s1, 80) / 40, (s0 - s1) / max(length, 1.0), xg0 * 4,
+                min(length, 80) / 40, fl.get("zmax", 0.0) / 3,
+                float(landing == "teammate"), float(landing == "gk_opp"), float(landing == "opp"),
+                float(landing == "line"), float(landing == "side")]
+
+    def _is_shot(self, fl: dict[str, Any], ex: float, ey: float, landing: str, rule: bool) -> bool:
+        x = self.features(fl, ex, ey, landing)
+        if self.collect is not None:
+            self.collect.append({"t0": fl["t0"], "player_id": fl["frm"][0], "x": x})
+        if not self.model:
+            return rule
+        z = sum(w * v for w, v in zip(self.model["weights"], x, strict=True))
+        return 1 / (1 + math.exp(-max(-30.0, min(30.0, z)))) >= self.model.get("threshold", 0.5)
+
     def _shot(self, fl: dict[str, Any], t: float, ex: float, ey: float, outcome: str) -> MatchEvent:
         pid, team = fl["frm"]
         xg, dist = shot_xg(fl["x0"], fl["y0"], self._dir(team), 0.3, False)
@@ -158,8 +188,11 @@ class VisionAutoEventer:
         if not (over_line or off_side):
             return out
         pid, team = fl["frm"]
-        shooting = over_line and fl["peak"] >= SHOT_KMH and self._towards_goal(fl, f.x, f.y)
-        if shooting and abs(f.y - 34.0) < GOAL_HALF and f.z < BAR:
+        towards = self._towards_goal(fl, f.x, f.y)
+        rule = over_line and fl["peak"] >= SHOT_KMH and towards
+        shooting = over_line and self._is_shot(fl, f.x, f.y, "line" if over_line else "side", rule)
+        in_goal = over_line and towards and abs(f.y - 34.0) < GOAL_HALF and f.z < BAR and fl["peak"] >= 30
+        if in_goal:  # the ball is in the net: physics, not a classifier, decides goals
             out.append(self._shot(fl, f.t, f.x, f.y, "goal"))
             out.append(self._ev(EventType.GOAL, f.t, team_id=team, player_id=pid, x=f.x, y=f.y, xg=out[0].xg,
                                 extra={"distance_m": out[0].extra.get("distance_m")}))
@@ -178,14 +211,21 @@ class VisionAutoEventer:
         if who == frm:
             return out  # possessor flicker or a touch-and-go dribble
         near_line = f.x > 102.0 or f.x < 3.0
-        if who[1] != frm[1] and who[0] in self.gk and near_line and fl["peak"] >= SHOT_KMH and self._towards_goal(fl, f.x, f.y):
+        ok = who[1] == frm[1]
+        landing = "teammate" if ok else "gk_opp" if who[0] in self.gk else "opp"
+        towards = self._towards_goal(fl, f.x, f.y)
+        rule = (landing == "gk_opp" and near_line and fl["peak"] >= SHOT_KMH and towards) or (
+            landing == "opp" and fl["peak"] >= 62 and towards and self._goal_dist(fl) < 28)
+        shot = self._is_shot(fl, f.x, f.y, landing, rule) and not ok
+        if landing == "gk_opp" and not near_line:
+            shot = False  # a keeper claiming a cross or a long ball away from the line is not a save
+        if shot and landing == "gk_opp":
             out.append(self._shot(fl, f.t, f.x, f.y, "saved"))
             out.append(self._ev(EventType.SAVE, f.t, team_id=who[1], player_id=who[0], related_player_id=frm[0], x=f.x, y=f.y,
                                 xg=out[0].xg))
             out.append(self._possession(f.t, who, f.x, f.y, "save"))
             return out
-        ok = who[1] == frm[1]
-        if not ok and fl["peak"] >= 62 and self._towards_goal(fl, f.x, f.y) and self._goal_dist(fl) < 28:
+        if shot:
             # A hard strike at goal that an outfield opponent stops: a blocked shot.
             out.append(self._shot(fl, f.t, f.x, f.y, "blocked"))
             out.append(self._possession(f.t, who, f.x, f.y, "block"))
@@ -199,9 +239,17 @@ class VisionAutoEventer:
         return out
 
 
-def auto_event_stream(meta: MatchMeta, feed) -> Any:
+def load_model(path: Path = MODEL_PATH) -> dict[str, Any] | None:
+    try:
+        model = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    return model if model.get("features") == FEATURES else None
+
+
+def auto_event_stream(meta: MatchMeta, feed, model: dict[str, Any] | bool | None = True) -> Any:
     """Turn a tracking + officials feed into a MatchEvent stream."""
-    vision = VisionAutoEventer(meta)
+    vision = VisionAutoEventer(meta, model=model)
     for kind, item in feed:
         yield from (vision.official(item) if kind == "official" else vision.frame(item))
 

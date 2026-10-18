@@ -14,6 +14,7 @@ LABELS: dict[str, dict[str, str]] = {
     "pass_combo": {"en": "Keeping the ball", "es": "Posesión larga", "fr": "Longue possession", "pt": "Posse longa", "hi": "गेंद पर नियंत्रण", "ar": "استحواذ طويل"},
     "great_pass": {"en": "Pass of the match?", "es": "¿Pase del partido?", "fr": "Passe du match ?", "pt": "Passe da partida?", "hi": "मैच का बेहतरीन पास?", "ar": "تمريرة المباراة؟"},
     "chaos_phase": {"en": "End-to-end", "es": "Ida y vuelta", "fr": "Match débridé", "pt": "Lá e cá", "hi": "उथल-पुथल", "ar": "ذهاب وإياب"},
+    "tempo_shift": {"en": "Tempo shift", "es": "Cambio de ritmo", "fr": "Changement de rythme", "pt": "Mudança de ritmo", "hi": "रफ़्तार बदली", "ar": "تغير الإيقاع"},
     "control_phase": {"en": "In control", "es": "Dominio", "fr": "Maîtrise", "pt": "Controle", "hi": "नियंत्रण", "ar": "سيطرة"},
     "milestone": {"en": "Milestone", "es": "Hito", "fr": "Cap franchi", "pt": "Marca", "hi": "उपलब्धि", "ar": "إنجاز"},
     "card": {"en": "Yellow card", "es": "Tarjeta amarilla", "fr": "Carton jaune", "pt": "Cartão amarelo", "hi": "पीला कार्ड", "ar": "بطاقة صفراء"},

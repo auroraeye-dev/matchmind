@@ -57,7 +57,7 @@ def cmd_eval(args: argparse.Namespace) -> None:
     exact = 0
     for seed in args.seeds:
         meta, truth = generate_match(seed)
-        r = evaluate(truth, list(auto_event_stream(meta, tracking_feed(truth, seed))))
+        r = evaluate(truth, list(auto_event_stream(meta, tracking_feed(truth, seed), model=not args.rules)))
         for k, v in r.items():
             if "matched" in v:
                 t = totals.setdefault(k, [0, 0, 0])
@@ -66,10 +66,17 @@ def cmd_eval(args: argparse.Namespace) -> None:
                 t[2] += v["matched"]
         st, sd = r["score"]["truth"], r["score"]["detected"]
         exact += all(sd.get(k, 0) == v for k, v in st.items()) and sum(sd.values()) == sum(st.values())
-    print(f"Auto-eventing from 10 Hz tracking over {len(args.seeds)} matches")
+    print(f"Auto-eventing from 10 Hz tracking over {len(args.seeds)} matches ({'rules' if args.rules else 'trained model'})")
     for k, (t, d, m) in totals.items():
         print(f"  {k:13s} recall {m / t:6.1%}  precision {m / d:6.1%}   (truth {t}, detected {d})")
     print(f"  final score exactly right in {exact}/{len(args.seeds)} matches")
+
+
+def cmd_train_vision(args: argparse.Namespace) -> None:
+    from matchmind.agents.vision_train import train
+
+    m = train(list(range(args.train_from, args.train_from + args.train_n)), list(range(args.val_from, args.val_from + 10)))
+    print(json.dumps({k: m[k] for k in ("trained_on", "validation", "threshold")}, indent=2))
 
 
 def cmd_report(args: argparse.Namespace) -> None:
@@ -98,7 +105,13 @@ def main() -> None:
     r.set_defaults(func=cmd_run)
     e = sub.add_parser("eval-autoevent", help="score the Vision agent against ground truth")
     e.add_argument("--seeds", type=int, nargs="+", default=list(range(1, 21)))
+    e.add_argument("--rules", action="store_true", help="use the hand-written rules instead of the trained model")
     e.set_defaults(func=cmd_eval)
+    tv = sub.add_parser("train-vision", help="train the Vision agent's shot classifier on synthetic tracking")
+    tv.add_argument("--train-from", type=int, default=101)
+    tv.add_argument("--train-n", type=int, default=40)
+    tv.add_argument("--val-from", type=int, default=201)
+    tv.set_defaults(func=cmd_train_vision)
     rp = sub.add_parser("report", help="GitHub Copilot SDK agent writes a post-match report via the MatchMind MCP tools")
     rp.add_argument("--seed", type=int, default=7)
     rp.add_argument("--model", default=None)

@@ -26,6 +26,7 @@ from matchmind.agents.renderer import Renderer
 from matchmind.config import Settings, get_settings
 from matchmind.llm.provider import LLMUnavailable, ResilientLLM, build_provider
 from matchmind.schema import MatchEvent, MatchMeta, Moment, Persona, TraceRecord
+from matchmind.telemetry import tracer
 
 Publish = Callable[[dict[str, Any]], Awaitable[None]]
 MAX_BACKLOG = 6  # pending moments before low-importance ones skip the LLM
@@ -63,10 +64,8 @@ class Orchestrator:
         derived, moments = self.interpreter.apply(ev)
         await self.publish({"type": "event", "event": ev.model_dump(mode="json"), "derived": derived,
                             "stats": self.state.public_stats()})
-        for p in list(self.personas.values()):
-            tag = self.renderer.player_tag(ev, derived, p, self.state)
-            if tag:
-                await self.publish({"type": "overlay", "overlay": tag.model_dump(mode="json")})
+        for tag in self.renderer.player_tags(ev, derived, list(self.personas.values()), self.state):
+            await self.publish({"type": "overlay", "overlay": tag.model_dump(mode="json")})
         if moments:
             await self._trace(TraceRecord(agent="interpreter", moment_id=moments[0].id, status="ok", source="rules",
                                           ms=(time.perf_counter() - t0) * 1000,
@@ -148,4 +147,16 @@ class Orchestrator:
 
     async def _trace(self, tr: TraceRecord) -> None:
         self.traces.append(tr)
+        with tracer.start_as_current_span(f"matchmind.{tr.agent}") as span:
+            span.set_attribute("matchmind.agent", tr.agent)
+            span.set_attribute("matchmind.status", tr.status)
+            span.set_attribute("matchmind.source", tr.source)
+            span.set_attribute("matchmind.latency_ms", round(tr.ms, 2))
+            span.set_attribute("matchmind.match_id", self.state.meta.match_id)
+            if tr.moment_id:
+                span.set_attribute("matchmind.moment_id", tr.moment_id)
+            if tr.persona_id:
+                span.set_attribute("matchmind.persona", tr.persona_id)
+            if tr.note:
+                span.set_attribute("matchmind.note", tr.note[:200])
         await self.publish({"type": "trace", "trace": tr.model_dump(mode="json")})

@@ -10,6 +10,7 @@ import json
 
 from matchmind.agents.interpreter import MatchState
 from matchmind.i18n import LANGUAGES, label
+from matchmind.llm.guardrails import enforce
 from matchmind.llm.provider import ResilientLLM
 from matchmind.schema import Explanation, Moment, Narration, Persona, PersonalizedNarrative
 
@@ -134,7 +135,7 @@ class Personalizer:
         }
         payload = {"persona": persona, "moment_type": m.type, "clock": m.clock,
                    "commentary": n.text, "explanation": x.model_dump(include={"headline", "why", "evidence"})}
-        out = await self.llm.complete_json(SYSTEM, json.dumps(payload, ensure_ascii=False, default=str), max_tokens=250, agent="personalizer")
+        out = enforce(await self.llm.complete_json(SYSTEM, json.dumps(payload, ensure_ascii=False, default=str), max_tokens=250, agent="personalizer"), payload)
         return PersonalizedNarrative(
             moment_id=m.id, persona_id=p.id,
             headline=str(out.get("headline") or base.headline)[:90],

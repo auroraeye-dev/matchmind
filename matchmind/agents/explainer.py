@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 
 from matchmind.agents.interpreter import MatchState
+from matchmind.llm.guardrails import enforce
 from matchmind.llm.provider import ResilientLLM
 from matchmind.schema import Explanation, Moment
 
@@ -81,6 +82,14 @@ def rules_explain(m: Moment, s: MatchState) -> Explanation:
         why = (f"The ball is changing hands constantly, with neither side able to settle. Chaos index "
                f"{e.get('chaos_index', 0):.2f} and {e.get('events_per_min', 0):.0f} actions a minute.")
         ev = [f"Chaos index {e.get('chaos_index', 0):.2f}", f"{e.get('events_per_min', 0):.0f} events/min"]
+    elif t == "tempo_shift":
+        up = e.get("direction") == "up"
+        headline = "The tempo lifts" if up else "The game slows down"
+        why = (f"The match is running at {e.get('events_per_min', 0):.0f} actions a minute, "
+               f"{abs(e.get('change_pct', 0))}% {'above' if up else 'below'} its usual rhythm of {e.get('baseline_events_per_min', 0):.0f}. "
+               + ("Both sides are moving the ball quickly; expect transitions." if up else "Possessions are longer and slower; the game is being managed."))
+        ev = [f"{e.get('events_per_min', 0):.0f} events/min", f"Baseline {e.get('baseline_events_per_min', 0):.0f}/min",
+              f"Change {e.get('change_pct', 0):+d}%"]
     elif t == "control_phase":
         headline = f"{team} take control"
         why = f"{team} have had {_pct(e.get('possession_last_5min_pct'))} of the ball over five minutes and are dictating the rhythm."
@@ -132,7 +141,7 @@ class Explainer:
             "snapshot": s.snapshot(),
             "rules_draft": base.model_dump(include={"headline", "why", "evidence"}),
         }
-        out = await self.llm.complete_json(SYSTEM, json.dumps(payload, default=str), agent="explainer")
+        out = enforce(await self.llm.complete_json(SYSTEM, json.dumps(payload, default=str), agent="explainer"), payload)
         return Explanation(
             moment_id=m.id,
             headline=str(out.get("headline") or base.headline)[:90],

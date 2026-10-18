@@ -19,6 +19,7 @@ dependencies = [
   "azure-identity>=1.26",
   "azure-cosmos>=4.17",
   "azure-eventhub>=5.15",
+  "azure-monitor-opentelemetry>=1.8",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +35,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["matchmind*"]
+
+[tool.setuptools.package-data]
+matchmind = ["agents/*.json"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

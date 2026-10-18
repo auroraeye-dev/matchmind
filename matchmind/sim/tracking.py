@@ -47,9 +47,10 @@ class _Seg:
     y1: float
     z1: float
     possessor: tuple[str, str] | None  # (player_id, team_id) while the ball is controlled
+    arc: bool = False  # parabolic flight peaking at z1 (lofted passes, crosses)
 
 
-def _segments(ev: MatchEvent, nxt: MatchEvent | None, team_of: dict[str, str]) -> list[_Seg]:
+def _segments(ev: MatchEvent, nxt: MatchEvent | None, team_of: dict[str, str], rng: random.Random) -> list[_Seg]:
     if ev.x is None:
         return []
     t_next = nxt.t if nxt else ev.t + 1.0
@@ -58,7 +59,10 @@ def _segments(ev: MatchEvent, nxt: MatchEvent | None, team_of: dict[str, str]) -
         dist = math.hypot(ev.end_x - ev.x, ev.end_y - ev.y)
         flight = min(max(dist / max((ev.ball_speed_kmh or 50) / 3.6, 5), 0.3), max(t_next - ev.t - 0.1, 0.3))
         segs = [_Seg(ev.t, ev.t + 0.3, ev.x, ev.y, ev.x, ev.y, 0.0, who)]  # strike
-        segs.append(_Seg(ev.t + 0.3, ev.t + 0.3 + flight, ev.x, ev.y, ev.end_x, ev.end_y, 0.0, None))
+        # long balls and crosses are lofted, short passes mostly stay on the floor
+        cross = bool(ev.extra.get("cross"))
+        loft = rng.uniform(2.5, 9.0) if (dist > 25 and rng.random() < 0.75) or cross else rng.uniform(0.0, 0.8)
+        segs.append(_Seg(ev.t + 0.3, ev.t + 0.3 + flight, ev.x, ev.y, ev.end_x, ev.end_y, loft, None, arc=True))
         receiver = None
         if ev.outcome == "success" and ev.receiver_id:
             receiver = (ev.receiver_id, ev.team_id)
@@ -108,7 +112,7 @@ def tracking_feed(events: list[MatchEvent], seed: int = 0, noise_m: float = 0.15
         if ev.type in OFFICIAL:
             yield "official", ev
         nxt = events[i + 1] if i + 1 < len(events) else None
-        for seg in _segments(ev, nxt, team_of):
+        for seg in _segments(ev, nxt, team_of, rng):
             n = max(1, round((seg.t1 - seg.t0) * HZ))
             for k in range(n):
                 if rng.random() < drop_rate:
@@ -116,7 +120,12 @@ def tracking_feed(events: list[MatchEvent], seed: int = 0, noise_m: float = 0.15
                 f = k / n
                 static = seg.x0 == seg.x1 and seg.y0 == seg.y1
                 # the ball climbs over the first 30% of its flight
-                z = 0.0 if seg.possessor is not None else seg.z1 if static else seg.z1 * min(1.0, f / 0.3)
+                if seg.possessor is not None:
+                    z = 0.0
+                elif seg.arc:
+                    z = 4 * seg.z1 * f * (1 - f)
+                else:
+                    z = seg.z1 if static else seg.z1 * min(1.0, f / 0.3)
                 pos = seg.possessor
                 if pos is not None and rng.random() < flicker_rate:
                     pos = None

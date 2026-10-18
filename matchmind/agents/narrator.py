@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from matchmind.agents.interpreter import MatchState
+from matchmind.llm.guardrails import enforce
 from matchmind.llm.provider import ResilientLLM
 from matchmind.schema import Explanation, Moment, Narration
 
@@ -54,6 +55,6 @@ class Narrator:
             "evidence": m.evidence if m.type in ("half_time", "full_time") else {},
             "snapshot": s.snapshot(),
         }
-        out = await self.llm.complete_json(SYSTEM, json.dumps(payload, default=str), max_tokens=400, agent="narrator")
+        out = enforce(await self.llm.complete_json(SYSTEM, json.dumps(payload, default=str), max_tokens=400, agent="narrator"), payload)
         text = str(out.get("text") or "").strip()
         return Narration(moment_id=m.id, text=text[:900], source="llm") if text else base

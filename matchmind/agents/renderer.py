@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import os
 
 from matchmind.agents.interpreter import MatchState
 from matchmind.schema import MatchEvent, Moment, Overlay, Persona, PersonalizedNarrative
@@ -63,22 +64,59 @@ class Renderer:
             )
         ]
 
-    def player_tag(self, ev: MatchEvent, derived: dict, p: Persona, s: MatchState) -> Overlay | None:
-        """Live player tag (name, speed, distance) for the persona's focus player or any shooter."""
-        if ev.type.value not in TAG_EVENTS or not ev.player_id or ev.x is None:
-            return None
-        focus = p.focus_player_id == ev.player_id
-        if not focus and ev.type.value not in ("shot", "goal"):
-            return None
+    # Predefined thresholds that pop a player tag for every viewer (configurable via env).
+    SPRINT_KMH = float(os.getenv("TAG_SPRINT_KMH", "25.2"))
+    ROCKET_KMH = float(os.getenv("TAG_BALL_KMH", "95"))
+    DISTANCE_MILESTONES_KM = tuple(float(x) for x in os.getenv("TAG_DISTANCE_KM", "3,6,9,11").split(","))
+
+    def __init__(self) -> None:
+        self._distance_done: dict[str, int] = {}
+
+    def triggers(self, ev: MatchEvent) -> list[str]:
+        """Threshold triggers for this event, independent of who is watching."""
+        out: list[str] = []
+        if ev.player_speed_kmh and ev.player_speed_kmh >= self.SPRINT_KMH and ev.type.value in ("carry", "pressure", "tackle"):
+            out.append("sprint")
+        if ev.ball_speed_kmh and ev.ball_speed_kmh >= self.ROCKET_KMH:
+            out.append("rocket")
+        if ev.type.value == "shot":
+            out.append("shot")
+        if ev.player_id and ev.distance_covered_km is not None:
+            done = self._distance_done.get(ev.player_id, 0)
+            marks = self.DISTANCE_MILESTONES_KM
+            while done < len(marks) and ev.distance_covered_km >= marks[done]:
+                done += 1
+                if "distance" not in out:
+                    out.append("distance")
+            self._distance_done[ev.player_id] = done
+        return out
+
+    def player_tags(self, ev: MatchEvent, derived: dict, personas: list[Persona], s: MatchState) -> list[Overlay]:
+        """Shared threshold tags (persona "*") plus a follow tag for each viewer following this player."""
+        if not ev.player_id or ev.x is None or ev.player_id not in s.players:
+            return []
+        trig = self.triggers(ev)
+        out: list[Overlay] = []
+        if trig:
+            out.append(self._tag(ev, derived, s, "*", trig, "en"))
+        for p in personas:
+            if p.focus_player_id == ev.player_id and ev.type.value in TAG_EVENTS:
+                out.append(self._tag(ev, derived, s, p.id, ["follow", *trig], p.language))
+        return out
+
+    def _tag(self, ev: MatchEvent, derived: dict, s: MatchState, persona_id: str, trig: list[str], lang: str) -> Overlay:
         pl = s.player(ev.player_id)
         ps = s.players[ev.player_id]
         data = {
             "player_id": ev.player_id,
             "number": pl.number if pl else None,
             "team_id": ev.team_id,
+            "trigger": trig,
             "speed_kmh": ev.player_speed_kmh,
             "distance_km": ps.distance_km,
             "top_speed_kmh": round(ps.top_speed_kmh, 1),
+            "pass_accuracy": round(ps.passes_completed / ps.passes, 3) if ps.passes else None,
+            "passes": ps.passes,
         }
         if ev.ball_speed_kmh:
             data["ball_speed_kmh"] = ev.ball_speed_kmh
@@ -88,7 +126,7 @@ class Renderer:
         if ev.xg is not None:
             data["xg"] = ev.xg
         return Overlay(
-            id=f"ov{next(_ids):05d}", persona_id=p.id, kind="player_tag", t_match=ev.t, clock=ev.clock,
-            display_ms=2500, priority=1, title=pl.name if pl else ev.player_id, data=data,
-            anchor={"x": ev.x, "y": ev.y}, language=p.language,
+            id=f"ov{next(_ids):05d}", persona_id=persona_id, kind="player_tag", t_match=ev.t, clock=ev.clock,
+            display_ms=3000 if "follow" not in trig else 2500, priority=2 if persona_id == "*" else 1,
+            title=pl.name if pl else ev.player_id, data=data, anchor={"x": ev.x, "y": ev.y}, language=lang,
         )

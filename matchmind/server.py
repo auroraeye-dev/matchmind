@@ -10,8 +10,8 @@ import contextlib
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from mcp.server.transport_security import TransportSecuritySettings
 
@@ -22,9 +22,12 @@ from matchmind.integrations.translator import translator_from_env
 from matchmind.llm.provider import ResilientLLM, build_provider
 from matchmind.mcp_server import mcp
 from matchmind.orchestrator import Orchestrator
-from matchmind.schema import Persona, TraceRecord
+from matchmind.recorder import Recorder
+from matchmind.schema import Overlay, Persona, TraceRecord
 from matchmind.sim.engine import MatchSimulator, generate_match
 from matchmind.sim.tracking import tracking_feed
+from matchmind.telemetry import enabled as telemetry_enabled
+from matchmind.telemetry import setup_telemetry
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 MAX_GAP_S = 1.2  # never wait longer than this between events, whatever the speed
@@ -48,15 +51,18 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="MatchMind", version="0.2.0", lifespan=lifespan)
 app.mount("/mcp", mcp_app)
+setup_telemetry()
 settings = get_settings()
 llm = ResilientLLM(build_provider(settings), settings.llm_timeout_s, settings.llm_max_concurrency)
 sinks = SinkHub(sinks_from_env())
 translator = translator_from_env()
+recorder = Recorder()
 
 
 @app.get("/api/health")
 async def health():
-    return {"ok": True, "llm": llm.status(), "translator": bool(translator), "sinks": sinks.stats}
+    return {"ok": True, "llm": llm.status(), "translator": bool(translator), "sinks": sinks.stats,
+            "telemetry": telemetry_enabled(), "sessions": len(recorder.sessions)}
 
 
 @app.get("/api/match")
@@ -84,15 +90,18 @@ async def live(ws: WebSocket):
     meta = sim.meta()
     vision = VisionAutoEventer(meta) if feed == "tracking" else None
     lock = asyncio.Lock()
+    session = recorder.start(seed, feed, meta.match_id, [p.model_dump() for p in personas])
 
     async def publish(msg: dict) -> None:
+        session.record(msg)
         if sinks.enabled:
             sinks.offer({**msg, "match_id": meta.match_id})
         async with lock:
             await ws.send_json(msg)
 
     orch = Orchestrator(meta, personas, publish, settings=settings, llm=llm, translator=translator)
-    await publish({"type": "meta", "meta": meta.model_dump(mode="json"), "llm": llm.status(), "feed": feed})
+    await publish({"type": "meta", "meta": meta.model_dump(mode="json"), "llm": llm.status(), "feed": feed,
+                   "session_id": session.id})
 
     async def reader() -> None:
         while True:
@@ -146,6 +155,37 @@ async def autoevent_eval(seed: int = Query(7, ge=0, le=99999)):
 
     meta, truth = generate_match(seed)
     return evaluate(truth, list(auto_event_stream(meta, tracking_feed(truth, seed))))
+
+
+@app.get("/api/sessions")
+async def sessions():
+    return recorder.list()
+
+
+def _session(sid: str):
+    s = recorder.get(sid)
+    if s is None:
+        raise HTTPException(404, "unknown or expired session")
+    return s
+
+
+@app.get("/api/sessions/{sid}/overlays.json")
+async def session_overlays(sid: str, persona: str | None = None, tags: bool = True, download: bool = False):
+    """Timed, machine-readable overlay feed for a broadcast graphics engine."""
+    s = _session(sid)
+    headers = {"Content-Disposition": f'attachment; filename="matchmind_{s.match_id}_{persona or "all"}_overlays.json"'} if download else None
+    return JSONResponse(s.overlay_feed(persona, tags), headers=headers)
+
+
+@app.get("/api/sessions/{sid}/moments.json")
+async def session_moments(sid: str):
+    s = _session(sid)
+    return {"match_id": s.match_id, "seed": s.seed, "moments": s.moments}
+
+
+@app.get("/api/schema/overlay")
+async def overlay_schema():
+    return Overlay.model_json_schema()
 
 
 @app.get("/")

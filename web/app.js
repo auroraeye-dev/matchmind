@@ -6,7 +6,7 @@
   const SVGNS = "http://www.w3.org/2000/svg";
   const ICON = {
     goal: "⚽", big_chance: "🎯", momentum_swing: "📈", pressure_spike: "🔥", pass_combo: "🔁", great_pass: "✨",
-    chaos_phase: "🌪️", control_phase: "🧭", milestone: "🏅", card: "🟨", substitution: "🔄", stat_check: "📊",
+    chaos_phase: "🌪️", control_phase: "🧭", tempo_shift: "⏱️", milestone: "🏅", card: "🟨", substitution: "🔄", stat_check: "📊",
     half_time: "⏸️", full_time: "🏁",
   };
   const DEFAULT_PERSONAS = [
@@ -14,7 +14,7 @@
     { id: "fan", label: "Home fan", mode: "casual", language: "en", metric: "possession", favorite_team_id: "__home" },
   ];
 
-  let ws = null, meta = null, paused = false, lastScore = "0-0";
+  let ws = null, meta = null, paused = false, lastScore = "0-0", sessionId = null;
   let players = {}, pstats = {}, flowPts = [], shots = [], eventCount = 0;
   const panes = {};
   const agentCounts = {};
@@ -74,6 +74,8 @@
     renderLineups(); renderStats(null); renderPerformers();
     buildTickers();
     legend();
+    $("#exportBtn").disabled = true;
+    X("reset");
   }
 
   // ---------------------------------------------------------------- tickers
@@ -168,10 +170,14 @@
     ws.onclose = () => { $("#pauseBtn").disabled = true; $("#liveDot").classList.remove("on"); };
   }
   function handle(msg) {
-    if (msg.type === "event") onEvent(msg);
-    else if (msg.type === "overlay") onOverlay(msg.overlay);
+    if (msg.type === "event") { onEvent(msg); X("onEvent", msg); }
+    else if (msg.type === "overlay") { onOverlay(msg.overlay); X("onOverlay", msg.overlay); }
+    else if (msg.type === "moment") X("onMoment", msg.moment);
     else if (msg.type === "trace") onTrace(msg.trace);
-    else if (msg.type === "meta") setLlm(msg.llm);
+    else if (msg.type === "meta") {
+      setLlm(msg.llm);
+      if (msg.session_id) { sessionId = msg.session_id; $("#exportBtn").disabled = false; }
+    }
     else if (msg.type === "end") { setLlm(msg.llm); $("#clock").textContent = "Full-time"; $("#liveDot").classList.remove("on"); $("#eventLine").textContent = "Full-time. Pick another seed and press Restart."; }
   }
   function setLlm(s) {
@@ -209,6 +215,7 @@
     const chaos = stats.chaos;
     $("#chaosFill").style.left = `calc(${chaos * 100}% - 2px)`;
     $("#chaosVal").textContent = chaos < 0.35 ? `Controlled ${chaos.toFixed(2)}` : chaos < 0.65 ? `Open ${chaos.toFixed(2)}` : `Chaotic ${chaos.toFixed(2)}`;
+    $("#rhythmVal").textContent = `${stats.rhythm_epm.toFixed(0)} actions/min`;
     const ph = stats.possession_pct[h] ?? 50, p5 = stats.possession_5m[h] ?? 50;
     $("#possFill").style.width = `${ph}%`; $("#possVal").textContent = `${ph.toFixed(0)} – ${(100 - ph).toFixed(0)}`;
     $("#poss5Fill").style.width = `${p5}%`; $("#poss5Val").textContent = `${p5.toFixed(0)} – ${(100 - p5).toFixed(0)}`;
@@ -260,14 +267,6 @@
     };
     $("#flowHome").setAttribute("d", area(1));
     $("#flowAway").setAttribute("d", area(-1));
-    if (ev.type === "goal" || ev.type === "card") {
-      const t = document.createElementNS(SVGNS, "text");
-      const home = ev.team_id === meta.home.id;
-      t.setAttribute("x", x); t.setAttribute("y", home ? 14 : 116); t.setAttribute("text-anchor", "middle");
-      t.setAttribute("class", "flow-mark");
-      t.textContent = ev.type === "goal" ? "⚽" : "🟨";
-      $("#flowMarks").appendChild(t);
-    }
   }
 
   // ---------------------------------------------------------------- shots / scorers / lineup updates
@@ -296,7 +295,9 @@
   }
   function legend() {
     const view = $(".tab.active").dataset.view;
-    if (view === "shots") {
+    if (view === "heat") {
+      $("#pitchLegend").innerHTML = `<span>Every touch of the followed player this match · brighter = more touches</span>`;
+    } else if (view === "shots") {
       const sum = (tid) => shots.filter((s) => s.team_id === tid);
       const h = sum(meta.home.id), a = sum(meta.away.id);
       $("#pitchLegend").innerHTML = `<span><i style="background:${meta.home.color}"></i>${esc(meta.home.short)} ${h.length} shots · ${h.reduce((x, s) => x + s.xg, 0).toFixed(2)} xG</span>
@@ -309,6 +310,8 @@
     $$(".tab").forEach((t) => t.classList.toggle("active", t === b));
     $("#liveLayer").style.display = b.dataset.view === "live" ? "" : "none";
     $("#shotLayer").style.display = b.dataset.view === "shots" ? "" : "none";
+    $("#heatLayer").style.display = b.dataset.view === "heat" ? "" : "none";
+    X("onTab", b.dataset.view);
     legend();
   }));
 
@@ -325,6 +328,10 @@
       ["Passes", H.passes, A.passes], ["Final-third entries", H.final_third_entries, A.final_third_entries],
       ["Pressures", H.pressures, A.pressures], ["Tackles won", H.tackles_won, A.tackles_won],
       ["Interceptions", H.interceptions, A.interceptions], ["Corners", H.corners, A.corners], ["Fouls", H.fouls, A.fouls],
+      ["PPDA · lower = harder press", H.ppda ?? 0, A.ppda ?? 0, (v) => Number(v).toFixed(1)],
+      ["Fastest shot (km/h)", H.fastest_shot_kmh || 0, A.fastest_shot_kmh || 0, (v) => Number(v).toFixed(0)],
+      ["Top sprint (km/h)", H.top_sprint_kmh || 0, A.top_sprint_kmh || 0, (v) => Number(v).toFixed(1)],
+      ["Hardest pass completed", H.hardest_pass_difficulty || 0, A.hardest_pass_difficulty || 0, (v) => Number(v).toFixed(2)],
     ];
     $("#statBars").innerHTML = rows.map(([label, h, a, f = (v) => v]) => {
       const tot = Number(h) + Number(a) || 1;
@@ -374,6 +381,14 @@
     feed.prepend(li);
     while (feed.childNodes.length > 80) feed.lastChild.remove();
   }
+  function tagBadge(d) {
+    const t = d.trigger || [];
+    if (t.includes("sprint")) return "SPRINT";
+    if (t.includes("rocket")) return "ROCKET";
+    if (t.includes("distance")) return `${Math.floor(d.distance_km)} KM`;
+    if (t.includes("follow")) return "FOLLOW";
+    return "";
+  }
   function showTag(ov) {
     const g = $("#tags");
     const key = `${ov.data.player_id}-${ov.t_match}`;
@@ -383,7 +398,8 @@
     const sub = [ov.data.speed_kmh != null && `${ov.data.speed_kmh.toFixed(0)} km/h`, `${ov.data.distance_km.toFixed(1)} km`,
       ov.data.xg != null ? `xG ${ov.data.xg.toFixed(2)}` : ov.data.pass_difficulty != null && `diff ${ov.data.pass_difficulty}`,
       ov.data.ball_speed_kmh && `ball ${ov.data.ball_speed_kmh.toFixed(0)} km/h`].filter(Boolean).join(" · ");
-    const w = Math.max(ov.title.length * 1.2 + 6, sub.length * 0.95) + 2;
+    const badge = tagBadge(ov.data);
+    const w = Math.max(ov.title.length * 1.2 + 6 + badge.length * 1.25, sub.length * 0.95) + 2;
     const tx = Math.min(Math.max(x - w / 2, 0), 105 - w), ty = Math.max(y - 8.5, 0);
     const node = document.createElementNS(SVGNS, "g");
     node.dataset.key = key;
@@ -391,7 +407,8 @@
       <rect x="${tx}" y="${ty}" width="4.2" height="6" rx=".8" fill="${color}"></rect>
       <text class="tag-text" x="${tx + 2.1}" y="${ty + 2.6}" text-anchor="middle">${esc(ov.data.number)}</text>
       <text class="tag-text" x="${tx + 5}" y="${ty + 2.6}">${esc(ov.title)}</text>
-      <text class="tag-sub" x="${tx + 5}" y="${ty + 5}">${esc(sub)}</text>`;
+      <text class="tag-sub" x="${tx + 5}" y="${ty + 5}">${esc(sub)}</text>
+      ${badge ? `<text class="tag-badge" x="${tx + w - 1}" y="${ty + 2.5}" text-anchor="end" fill="#ffd84d">${esc(badge)}</text>` : ""}`;
     g.appendChild(node);
     while (g.childNodes.length > 3) g.firstChild.remove();
     setTimeout(() => node.remove(), ov.display_ms);
@@ -416,6 +433,13 @@
     while (list.childNodes.length > 100) list.lastChild.remove();
   }
 
+  // ---------------------------------------------------------------- shared with extras.js
+  window.MMCore = {
+    get meta() { return meta; }, get players() { return players; }, get pstats() { return pstats; },
+    panes, readPersona, esc, SVGNS, ICON, clockMinutes, flowX, crest,
+  };
+  const X = (fn, ...args) => { try { window.MMX?.[fn]?.(...args); } catch (e) { console.error(e); } };
+
   // ---------------------------------------------------------------- controls
   $("#startBtn").addEventListener("click", start);
   $("#pauseBtn").addEventListener("click", () => {
@@ -423,6 +447,9 @@
     ws?.send(JSON.stringify({ type: paused ? "pause" : "resume" }));
     $("#pauseBtn").textContent = paused ? "Resume" : "Pause";
     $("#liveDot").classList.toggle("on", !paused);
+  });
+  $("#exportBtn").addEventListener("click", () => {
+    if (sessionId) window.open(`/api/sessions/${sessionId}/overlays.json?download=true`, "_blank");
   });
   $("#speed").addEventListener("change", (e) => ws?.send(JSON.stringify({ type: "speed", speed: Number(e.target.value) })));
   $("#seed").addEventListener("change", async () => { if (!ws || ws.readyState !== 1) setupMatch(await fetch(`/api/match?seed=${Number($("#seed").value) || 7}`).then((r) => r.json())); });

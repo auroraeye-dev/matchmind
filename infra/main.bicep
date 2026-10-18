@@ -40,6 +40,14 @@ resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   properties: { sku: { name: 'PerGB2018' }, retentionInDays: 30 }
 }
 
+resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
+  name: 'appi-matchmind-${token}'
+  location: location
+  tags: tags
+  kind: 'web'
+  properties: { Application_Type: 'web', WorkspaceResourceId: logs.id }
+}
+
 // ---------------------------------------------------------------- Microsoft Foundry (AI Services + project + model)
 
 resource foundry 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
@@ -204,6 +212,7 @@ var envVars = concat([
   { name: 'COSMOS_CONTAINER', value: 'match_items' }
   { name: 'TRANSLATOR_KEY', secretRef: 'translator-key' }
   { name: 'TRANSLATOR_REGION', value: location }
+  { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
 ], empty(fabricEventstreamConnectionString) ? [] : [ { name: 'FABRIC_EVENTSTREAM_CONNECTION_STRING', secretRef: 'fabric-conn' } ])
 
 resource web 'Microsoft.App/containerApps@2024-03-01' = {

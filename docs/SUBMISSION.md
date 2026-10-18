@@ -20,7 +20,7 @@
 MatchMind is a multi-agent system that watches a live football match and tells each viewer what matters and *why*: a studio analyst, a casual fan, or someone who wants Spanish or Hindi. The input is a synthetic event feed, or a synthetic 10 Hz tracking feed that our Vision agent auto-events. Six cooperating agents turn it into timed, machine-readable broadcast overlays.
 
 **The agents:**
-- **Vision** detects passes, shots and goals from ball tracking. Over 20 test matches it found every goal (100% precision and recall) and 99% of passes.
+- **Vision** auto-events from ball tracking with a trained shot classifier. On 20 held-out matches it found every goal (100% precision and recall), 100% of passes, and shots with 99% precision.
 - **Interpreter** computes xG, pass difficulty, momentum, and a control-vs-chaos index.
 - **Explainer** gives grounded reasons that only cite real numbers.
 - **Narrator** writes commentary and recaps.
@@ -34,7 +34,9 @@ MatchMind is a multi-agent system that watches a live football match and tells e
 - The app runs on **Azure Container Apps**, with **Azure Cosmos DB** for match memory, **Azure AI Translator** for languages, and a **Microsoft Fabric** Eventstream feeding an Eventhouse for analytics.
 - Everything deploys with **azd** and Bicep, and is built with **GitHub Copilot agent mode** and GitHub Actions CI/CD.
 
-**The problem it solves:** broadcasters produce one feed for millions of different viewers. MatchMind produces a different, explainable feed for each of them in real time. It stays reliable even when models fail: every agent has a deterministic fallback, a circuit breaker, and live tracing.
+**Viewer features:** players get automatic speed and distance tags at set thresholds. There's a player cam, one-click replays, a highlights reel, a full-screen broadcast view, and an exportable timed overlay feed for graphics engines.
+
+**The problem it solves:** broadcasters produce one feed for millions of different viewers. MatchMind produces a different, explainable feed for each of them in real time. It stays reliable even when models fail: every agent has a deterministic fallback, a circuit breaker, a grounding guardrail that blocks invented numbers, and OpenTelemetry tracing to Application Insights.
 
 ## Category
 
@@ -58,7 +60,7 @@ It is also eligible for the Grand Prize.
 | GitHub Copilot SDK | Match Report agent that researches through MCP tools | `copilot_reporter.py` |
 | GitHub CLI | Repo setup, publishing reports as gists, `azd pipeline config` | `copilot_reporter.py` |
 | Microsoft Fabric | Eventstream sink into an Eventhouse, with KQL analytics | `integrations/sinks.py`, `fabric/matchmind.kql` |
-| Azure Apps and AI services | Container Apps, Container Registry, AI Translator, Log Analytics | `infra/main.bicep`, `integrations/translator.py` |
+| Azure Apps and AI services | Container Apps, Container Registry, AI Translator, Log Analytics, Application Insights (OpenTelemetry) | `infra/main.bicep`, `integrations/translator.py`, `telemetry.py` |
 | Azure databases | Cosmos DB (serverless, Entra-only) storing matches, moments and overlays | `integrations/sinks.py` |
 
 ## Demo video script (≈1:50)
@@ -68,10 +70,10 @@ It is also eligible for the Grand Prize.
 | 0:00–0:12 | Match centre hero, press Kick off | "This is MatchMind. Six AI agents watch a synthetic football match and explain it differently to every viewer." |
 | 0:12–0:30 | Live pitch with player tags, momentum chart filling | "The Interpreter tracks xG, pass difficulty, momentum, and whether the game is controlled or chaotic, every event, in real time." |
 | 0:30–0:52 | Analyst and fan tickers side by side on a goal | "Same goal, two viewers. The analyst gets the xG and the tactical reason. The home fan gets 'Get in!'. Switch the fan to Spanish and the Personalizer answers in Spanish." |
-| 0:52–1:08 | Switch Feed to Tracking, then show the Vision stage counter | "No event data? The Vision agent auto-events from a 10 Hz tracking feed. Across 20 test matches it found every goal and 99% of passes." |
+| 0:52–1:08 | Click a goal marker on the momentum timeline; the replay theatre plays it with lower thirds. Then switch Feed to Tracking. | "Any moment can be replayed in one click. No event data? Our Vision agent runs a trained model over a 10 Hz tracking feed. It found every goal in 20 held-out matches." |
 | 1:08–1:25 | Agent trace panel; a fallback status in amber | "Every handoff is traced. If Foundry slows down, a circuit breaker drops to rules, so the broadcast never stalls." |
 | 1:25–1:42 | VS Code with Copilot calling `matchmind` MCP tools; a Cosmos DB item in the portal | "Copilot and other agents can query the match through our MCP server. Everything lands in Cosmos DB and Fabric for analytics." |
-| 1:42–1:50 | Architecture slide | "Foundry, Agent Framework, MCP, Copilot, Container Apps, Cosmos DB, Fabric. MatchMind." |
+| 1:42–1:50 | Broadcast view (full screen) | "Foundry, Agent Framework, MCP, Copilot, Container Apps, Cosmos DB, Fabric. MatchMind." |
 
 Use no copyrighted music; the YouTube Audio Library is fine. Upload as Public or Unlisted.
 
@@ -79,6 +81,8 @@ Use no copyrighted music; the YouTube Audio Library is fine. Upload as Public or
 
 1. Open the deployed URL and press **Kick off**. No login is needed.
 2. Change a ticker's **Mode**, **Club**, **Language** or **Follow** player while the match runs.
-3. Set **Feed** to *Tracking feed* and restart to watch auto-eventing.
-4. To use the MCP endpoint, point any MCP client at `<url>/mcp/`.
-5. To run locally: `pip install -e ".[dev]" && uvicorn matchmind.server:app`. It works fully offline.
+3. Click any marker on the momentum timeline to replay it. Use **▶ Highlights** for the reel and **📺 Broadcast view** for the TV mode.
+4. Pick a player in **Line-ups** to open the Player cam. Use **⬇ Overlay feed** to download the timed overlay JSON.
+5. Set **Feed** to *Tracking feed* and restart to watch auto-eventing.
+6. To use the MCP endpoint, point any MCP client at `<url>/mcp/`.
+7. To run locally: `pip install -e ".[dev]" && uvicorn matchmind.server:app`. It works fully offline.

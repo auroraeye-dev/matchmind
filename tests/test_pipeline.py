@@ -203,3 +203,72 @@ async def test_tracking_feed_runs_through_agents():
     goals = [m for m in out if m["type"] == "moment" and m["moment"]["type"] == "goal"]
     assert len(goals) == sum(truth[-1].extra["score"].values())
     assert any(m["type"] == "overlay" and m["overlay"]["kind"] == "recap" for m in out)
+
+
+# ---------------------------------------------------------------- guardrail
+
+
+def test_grounding_guardrail():
+    from matchmind.llm.guardrails import UngroundedOutput, check_grounded, enforce
+
+    payload = {"xg": 0.34, "possession_pct": 61.2, "clock": "67:12", "shots": 9}
+    assert check_grounded({"why": "a 0.34 xG chance, 61% possession, 34% chance, in the 67th minute, 9 shots"}, payload) == []
+    assert check_grounded({"why": "his 4th goal from 27 metres"}, payload) == [4.0, 27.0]
+    with pytest.raises(UngroundedOutput):
+        enforce({"why": "a 0.81 xG chance"}, payload)
+
+
+async def test_hallucinating_llm_is_blocked_and_falls_back():
+    class Liar(FakeLLM):
+        async def complete_json(self, system, user, max_tokens=350, agent="agent"):
+            self.calls += 1
+            return {"headline": "Wonder goal", "why": "From 47 metres at 187 km/h.", "evidence": ["xG 0.93"], "text": "77 goals", "body": "999"}
+
+    _, out = await _run(_personas, ResilientLLM(Liar(), timeout_s=2))
+    traces = [m["trace"] for m in out if m["type"] == "trace"]
+    assert any(t["status"] == "fallback" and "guardrail" in t["note"] for t in traces)
+    ovs = [m["overlay"] for m in out if m["type"] == "overlay" and m["overlay"]["kind"] != "player_tag"]
+    assert ovs and not any("187" in o["body"] or "999" in o["body"] for o in ovs)
+
+
+def test_session_recording_and_overlay_export(monkeypatch):
+    monkeypatch.setattr("matchmind.server.MAX_GAP_S", 0.0)
+    from matchmind.server import app
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/live") as ws:
+        ws.send_json({"seed": 4, "speed": 600, "personas": [{"id": "a", "mode": "analyst"}, {"id": "f", "mode": "casual", "language": "es"}]})
+        sid = None
+        while True:
+            msg = ws.receive_json()
+            sid = sid or msg.get("session_id")
+            if msg["type"] == "end":
+                break
+    assert sid and any(s["id"] == sid and s["finished"] for s in client.get("/api/sessions").json())
+    feed = client.get(f"/api/sessions/{sid}/overlays.json?persona=f&tags=false").json()
+    assert feed["format"] == "matchmind.overlay-feed/1" and feed["count"] > 0
+    assert all(o["persona_id"] in ("f", "*") and o["t_out"] > o["t_in"] for o in feed["overlays"])
+    assert [o["t_in"] for o in feed["overlays"]] == sorted(o["t_in"] for o in feed["overlays"])
+    assert "properties" in client.get("/api/schema/overlay").json()
+    assert client.get("/api/sessions/nope/overlays.json").status_code == 404
+
+
+def test_trained_vision_model_beats_rules():
+    from matchmind.agents.vision import FEATURES, auto_event_stream, evaluate, load_model
+    from matchmind.sim.tracking import tracking_feed
+
+    model = load_model()
+    assert model and model["features"] == FEATURES and model["validation"]["f1"] > 0.9
+    rules_p, model_p = [], []
+    for seed in (8, 9):
+        meta, truth = generate_match(seed)
+        rules_p.append(evaluate(truth, list(auto_event_stream(meta, tracking_feed(truth, seed), model=None)))["shot"]["precision"])
+        model_p.append(evaluate(truth, list(auto_event_stream(meta, tracking_feed(truth, seed), model=True)))["shot"]["precision"])
+    assert sum(model_p) > sum(rules_p)
+
+
+def test_vision_training_pipeline_runs(tmp_path):
+    from matchmind.agents.vision_train import train
+
+    m = train([301, 302], [303], out=tmp_path / "m.json")
+    assert (tmp_path / "m.json").exists() and len(m["weights"]) == 13 and 0 < m["threshold"] < 1

@@ -20,6 +20,8 @@
         <li><a href="#lineups">Line-ups</a></li>
         <li><a href="#agents">Agents</a></li>
       </ul>
+      <button class="nav-btn" id="highlightsBtn" title="Play the top moments back to back">▶ Highlights</button>
+      <button class="nav-btn" id="broadcastBtn" title="Full-screen TV view">📺 Broadcast view</button>
       <span class="chip" id="llmChip" title="Model backend">AI · offline</span>
     </div>
   </nav>
@@ -49,12 +51,13 @@
         </div>
       </div>
       <div class="flow">
-        <div class="flow-head"><span>Match momentum</span><span class="flow-legend"><i class="lg home"></i><span id="lgHome">Home</span><i class="lg away"></i><span id="lgAway">Away</span></span></div>
+        <div class="flow-head"><span>Match momentum <small class="flow-hint">click the timeline to replay any moment</small></span><span class="flow-legend"><i class="lg home"></i><span id="lgHome">Home</span><i class="lg away"></i><span id="lgAway">Away</span></span></div>
         <svg id="flow" viewBox="0 0 960 120" preserveAspectRatio="none" aria-label="Match momentum over time">
           <line x1="0" y1="60" x2="960" y2="60" class="flow-mid" />
           <line x1="480" y1="0" x2="480" y2="120" class="flow-ht" />
           <path id="flowHome" class="flow-home" d="" />
           <path id="flowAway" class="flow-away" d="" />
+          <line id="flowCursor" x1="0" y1="0" x2="0" y2="120" class="flow-cursor" />
           <g id="flowMarks"></g>
         </svg>
         <div class="flow-axis"><span>0'</span><span>15'</span><span>30'</span><span>HT</span><span>60'</span><span>75'</span><span>90'</span></div>
@@ -73,6 +76,7 @@
       </select></label>
       <button id="startBtn" class="btn primary">Kick off</button>
       <button id="pauseBtn" class="btn" disabled>Pause</button>
+      <button id="exportBtn" class="btn ghost" disabled title="Download the timed, machine-readable overlay feed">⬇ Overlay feed</button>
       <span class="event-line" id="eventLine">Choose a seed and kick off a synthetic match.</span>
     </div>
   </section>
@@ -82,8 +86,10 @@
       <div class="tabs" role="tablist">
         <button class="tab active" data-view="live" role="tab">Live pitch</button>
         <button class="tab" data-view="shots" role="tab">Shot map</button>
+        <button class="tab" data-view="heat" role="tab">Player heatmap</button>
         <div class="meters-inline">
           <span class="mini"><b>Control ↔ Chaos</b><span class="mbar"><i id="chaosFill"></i></span><em id="chaosVal">—</em></span>
+          <span class="mini"><b>Rhythm</b><em id="rhythmVal">— /min</em></span>
         </div>
       </div>
       <div class="pitch-wrap">
@@ -106,6 +112,7 @@
           </g>
           <g id="liveLayer"><g id="trail"></g><g id="tags"></g><circle id="ball" cx="52.5" cy="34" r="1.15" /></g>
           <g id="shotLayer" style="display:none"></g>
+          <g id="heatLayer" style="display:none"></g>
         </svg>
         <div class="pitch-legend" id="pitchLegend"></div>
       </div>
@@ -133,6 +140,11 @@
       </div>
     </section>
 
+    <section class="card playercam-card" id="playercam">
+      <h2 class="card-title">Player cam <small>follow a player in a ticker or line-up</small></h2>
+      <div id="playercamBody" class="pc-empty">No player followed yet. Pick one in the line-ups to track them all match.</div>
+    </section>
+
     <section class="card performers-card">
       <h2 class="card-title">Top performers</h2>
       <ol class="performers" id="performers"><li class="empty">Kick off to see live ratings.</li></ol>
@@ -152,6 +164,71 @@
       <ol id="traceList"></ol>
     </section>
   </main>
+
+  <!-- Replay theatre: re-plays recorded events and the viewer's overlays for any window of the match -->
+  <div class="theatre" id="theatre" hidden>
+    <div class="theatre-inner">
+      <header class="theatre-head">
+        <span class="replay-badge">REPLAY</span>
+        <span class="theatre-title" id="theatreTitle">—</span>
+        <label class="theatre-persona">Viewer <select id="theatrePersona"></select></label>
+        <button class="icon-btn" id="theatreClose" aria-label="Close replay">✕</button>
+      </header>
+      <div class="theatre-stage">
+        <svg id="rpitch" viewBox="-3 -3 111 74" preserveAspectRatio="xMidYMid meet" aria-label="Replay pitch">
+          <rect x="0" y="0" width="105" height="68" fill="url(#mow)" />
+          <g class="lines">
+            <rect x="0" y="0" width="105" height="68" />
+            <line x1="52.5" y1="0" x2="52.5" y2="68" />
+            <circle cx="52.5" cy="34" r="9.15" /><circle cx="52.5" cy="34" r=".4" class="spot" />
+            <rect x="0" y="13.84" width="16.5" height="40.32" /><rect x="88.5" y="13.84" width="16.5" height="40.32" />
+            <rect x="0" y="24.84" width="5.5" height="18.32" /><rect x="99.5" y="24.84" width="5.5" height="18.32" />
+            <circle cx="11" cy="34" r=".4" class="spot" /><circle cx="94" cy="34" r=".4" class="spot" />
+            <path d="M16.5 26.7 A9.15 9.15 0 0 1 16.5 41.3" /><path d="M88.5 26.7 A9.15 9.15 0 0 0 88.5 41.3" />
+            <rect x="-1.6" y="30.34" width="1.6" height="7.32" class="goal" /><rect x="105" y="30.34" width="1.6" height="7.32" class="goal" />
+          </g>
+          <g id="rtrail"></g><g id="rtags"></g><circle id="rball" cx="52.5" cy="34" r="1.3" />
+        </svg>
+        <div class="scorebug" id="rbug"></div>
+        <div class="lower-third" id="rlower" hidden><div class="lt-kicker" id="rlowerKicker"></div><div class="lt-title" id="rlowerTitle"></div><div class="lt-body" id="rlowerBody"></div></div>
+        <div class="reel-card" id="reelCard" hidden></div>
+      </div>
+      <footer class="theatre-controls">
+        <button class="icon-btn" id="rPrev" title="Previous moment">⏮</button>
+        <button class="icon-btn big" id="rPlay" title="Play / pause">⏸</button>
+        <button class="icon-btn" id="rNext" title="Next moment">⏭</button>
+        <input type="range" id="rScrub" min="0" max="1000" value="0" aria-label="Replay position" />
+        <span class="rclock" id="rClock">00:00</span>
+        <select id="rSpeed" aria-label="Replay speed"><option value="1">1×</option><option value="2">2×</option><option value="4" selected>4×</option><option value="8">8×</option></select>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Broadcast view: TV-style full screen -->
+  <div class="broadcast" id="broadcast" hidden>
+    <div class="bc-stage">
+      <svg id="bpitch" viewBox="-3 -3 111 74" preserveAspectRatio="xMidYMid meet" aria-label="Broadcast pitch">
+        <rect x="0" y="0" width="105" height="68" fill="url(#mow)" />
+        <g class="lines">
+            <rect x="0" y="0" width="105" height="68" />
+            <line x1="52.5" y1="0" x2="52.5" y2="68" />
+            <circle cx="52.5" cy="34" r="9.15" /><circle cx="52.5" cy="34" r=".4" class="spot" />
+            <rect x="0" y="13.84" width="16.5" height="40.32" /><rect x="88.5" y="13.84" width="16.5" height="40.32" />
+            <rect x="0" y="24.84" width="5.5" height="18.32" /><rect x="99.5" y="24.84" width="5.5" height="18.32" />
+            <circle cx="11" cy="34" r=".4" class="spot" /><circle cx="94" cy="34" r=".4" class="spot" />
+            <path d="M16.5 26.7 A9.15 9.15 0 0 1 16.5 41.3" /><path d="M88.5 26.7 A9.15 9.15 0 0 0 88.5 41.3" />
+            <rect x="-1.6" y="30.34" width="1.6" height="7.32" class="goal" /><rect x="105" y="30.34" width="1.6" height="7.32" class="goal" />
+          </g>
+        <g id="btrail"></g><g id="btags"></g><circle id="bball" cx="52.5" cy="34" r="1.3" />
+      </svg>
+      <div class="scorebug" id="bbug"></div>
+      <div class="lower-third" id="blower" hidden><div class="lt-kicker" id="blowerKicker"></div><div class="lt-title" id="blowerTitle"></div><div class="lt-body" id="blowerBody"></div></div>
+      <div class="bc-ticker" id="bticker"></div>
+      <div class="bc-tools"><label>Viewer <select id="bcPersona"></select></label><button class="icon-btn" id="bcClose" aria-label="Exit broadcast view">✕</button></div>
+    </div>
+  </div>
+
+  <div class="goal-flash" id="goalFlash" hidden><span id="goalFlashText">GOAL!</span><small id="goalFlashSub"></small></div>
 
   <footer class="footer"><div class="container">MatchMind · built for the Inside the Game Developer Hackathon · all clubs, players and data are synthetic.</div></footer>
 
@@ -183,5 +260,6 @@
   </template>
 
   <script src="/static/app.js"></script>
+  <script src="/static/extras.js"></script>
 </body>
 </html>

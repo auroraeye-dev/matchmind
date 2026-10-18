@@ -1,0 +1,49 @@
+{
+  "name": "matchmind-vision-shot-classifier",
+  "type": "logistic_regression",
+  "features": [
+    "bias",
+    "peak_speed",
+    "start_goal_dist",
+    "end_goal_dist",
+    "directness",
+    "start_xg",
+    "flight_length",
+    "max_height",
+    "to_teammate",
+    "to_opp_keeper",
+    "to_opp_outfield",
+    "over_goal_line",
+    "over_touchline"
+  ],
+  "weights": [
+    -1.946979,
+    9.587412,
+    15.777033,
+    -21.091301,
+    -0.934384,
+    -0.242724,
+    -21.250222,
+    -1.117254,
+    -9.097993,
+    -0.84704,
+    -2.205332,
+    11.975075,
+    0.0
+  ],
+  "threshold": 0.42,
+  "trained_on": {
+    "seeds": "101-140",
+    "flights": 38526,
+    "shots": 1250
+  },
+  "validation": {
+    "seeds": "201-210",
+    "flights": 9644,
+    "shots": 306,
+    "f1": 0.955,
+    "recall": 0.961,
+    "precision": 0.948
+  },
+  "created": "2026-10-18T06:21:37+00:00"
+}

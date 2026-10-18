@@ -28,8 +28,14 @@ APP=$(echo "$OUT" | out SERVICE_WEB_NAME)
 TAG="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || date +%s)"
 IMAGE="$ACR/matchmind:$TAG"
 
-echo "==> building $IMAGE in ACR"
-"$AZ" acr build -r "${ACR%%.*}" -t "matchmind:$TAG" "$ROOT" -o none
+echo "==> building $IMAGE"
+if ! "$AZ" acr build -r "${ACR%%.*}" -t "matchmind:$TAG" "$ROOT" -o none 2>/dev/null; then
+  # Free-trial subscriptions block ACR Tasks: build locally (Container Apps needs linux/amd64) and push.
+  echo "    ACR Tasks unavailable, building locally with Docker"
+  docker build --platform linux/amd64 -t "$IMAGE" "$ROOT"
+  "$AZ" acr login -n "${ACR%%.*}"
+  docker push "$IMAGE"
+fi
 
 echo "==> deploying $IMAGE to $APP"
 OUT=$("$AZ" deployment group create -g "$RG" -n matchmind-app -f "$HERE/main.bicep" \

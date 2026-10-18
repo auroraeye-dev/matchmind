@@ -10,7 +10,7 @@
 | Uses synthetic, football-realistic data that we have rights to | Our own seeded engine (`matchmind/sim`). No real clubs, players or footage. | ✅ |
 | Short pitch (what, which Microsoft tech, problem solved) | [below](#pitch-paste-into-innovation-studio) | ✅ |
 | Demo video under 2:00, public on YouTube or Vimeo, no copyrighted music | [script below](#demo-video-script-150) | ⬜ record and upload |
-| Free testing access until judging ends (Nov 10) | `azd up` deploys to Azure Container Apps | ⬜ deploy, then paste the URL |
+| Free testing access until judging ends (Nov 10) | https://ca-matchmind-fh62l3n45y67i.wittyriver-305907d2.eastus2.azurecontainerapps.io | ✅ live on Azure Container Apps |
 | English materials | All docs and UI default to English | ✅ |
 
 ## Pitch (paste into Innovation Studio)
@@ -79,7 +79,7 @@ Use no copyrighted music; the YouTube Audio Library is fine. Upload as Public or
 
 ## Testing instructions for judges
 
-1. Open the deployed URL and press **Kick off**. No login is needed.
+1. Open https://ca-matchmind-fh62l3n45y67i.wittyriver-305907d2.eastus2.azurecontainerapps.io and press **Kick off**. No login is needed.
 2. Change a ticker's **Mode**, **Club**, **Language** or **Follow** player while the match runs.
 3. Click any marker on the momentum timeline to replay it. Use **▶ Highlights** for the reel and **📺 Broadcast view** for the TV mode.
 4. Pick a player in **Line-ups** to open the Player cam. Use **⬇ Overlay feed** to download the timed overlay JSON.

@@ -13,4 +13,4 @@ services:
     host: containerapp
     docker:
       path: ./Dockerfile
-      remoteBuild: true
+      remoteBuild: false  # ACR Tasks are blocked on free-trial subscriptions

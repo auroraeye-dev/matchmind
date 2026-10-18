@@ -8,7 +8,7 @@
     },
     "matchmind-cloud": {
       "type": "http",
-      "url": "https://<your-container-app>.azurecontainerapps.io/mcp/"
+      "url": "https://ca-matchmind-fh62l3n45y67i.wittyriver-305907d2.eastus2.azurecontainerapps.io/mcp/"
     },
     "azure": {
       "type": "stdio",

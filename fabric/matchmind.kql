@@ -1,27 +1,36 @@
 // Microsoft Fabric Eventhouse (KQL) queries over the MatchMind Eventstream.
-// Eventstream: source = Custom endpoint (MatchMind), destination = Eventhouse table `matchmind_raw`.
+// Eventstream: source = Custom endpoint (MatchMind app), destination = Eventhouse table `matchmind_raw` (JSON).
+// Verified against the live demo deployment.
 
-// 1. Live xG race per team, per minute
+// 0. What has arrived, per match
+matchmind_raw
+| summarize rows = count() by record, match_id
+
+// 1. Live xG race for one match (render as a line chart)
 matchmind_raw
 | where record == "event" and type == "shot"
-| summarize xg = sum(todouble(xg)) by match_id, team_id, minute = bin(todouble(t) / 60, 1)
+| summarize xg = sum(todouble(xg)) by match_id, team_id, minute = bin(todouble(t) / 60, 5)
 | order by match_id asc, team_id asc, minute asc
 | extend cum_xg = row_cumsum(xg, match_id != prev(match_id) or team_id != prev(team_id))
+| where match_id == "SYN-00289"
+| project minute, team_id, cum_xg
+| render linechart
 
-// 2. Momentum and chaos over time (rendered as a time chart)
+// 2. Momentum (+ home, - away) and chaos through the match
 matchmind_raw
-| where record == "event"
-| summarize momentum = avg(todouble(momentum)), chaos = avg(todouble(chaos)) by match_id, minute = bin(todouble(t) / 60, 1)
-| render timechart
+| where record == "event" and match_id == "SYN-00289"
+| summarize momentum = avg(todouble(momentum)), chaos = avg(todouble(chaos)) by minute = bin(todouble(t) / 60, 1)
+| order by minute asc
+| render linechart with (xcolumn = minute, title = "Momentum (+ home, - away) and chaos")
 
-// 3. Hardest completed passes (pass difficulty computed by the Interpreter agent)
+// 3. Hardest completed passes (difficulty scored by the Interpreter agent)
 matchmind_raw
 | where record == "event" and type == "pass" and outcome == "success"
-| top 20 by todouble(d_pass_difficulty) desc
+| top 10 by todouble(d_pass_difficulty) desc
 | project match_id, clock, player_id, d_pass_length_m, d_pass_difficulty, pressure, ball_speed_kmh
 
 // 4. Moments the agents flagged, by type and importance
 matchmind_raw
 | where record == "moment"
-| summarize count(), avg_importance = avg(todouble(importance)) by type
+| summarize moments = count(), avg_importance = round(avg(todouble(importance)), 2) by type
 | order by avg_importance desc

@@ -193,6 +193,7 @@ The live app streams every raw event and every agent moment into Fabric. Flat JS
    infra/connect-fabric.sh      # reads the string without echo and stores it only as a Container App secret
    ```
 3. Run the analytics in [`fabric/matchmind.kql`](fabric/matchmind.kql): the xG race, momentum and chaos timelines, the hardest passes and moments by importance.
+4. Use **Save to Dashboard** to pin them to a Real-Time Dashboard. The demo deployment's dashboard is called "MatchMind Live" and auto-refreshes every 30 s.
 
 ## Synthetic data
 

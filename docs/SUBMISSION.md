@@ -59,7 +59,7 @@ It is also eligible for the Grand Prize.
 | GitHub Copilot agent mode | Development with repo instructions and MCP servers | `.github/copilot-instructions.md` |
 | GitHub Copilot SDK | Match Report agent that researches through MCP tools | `copilot_reporter.py` |
 | GitHub CLI | Repo setup, publishing reports as gists, `azd pipeline config` | `copilot_reporter.py` |
-| Microsoft Fabric | **Live:** every event and agent moment streams through an Eventstream into an Eventhouse (`matchmind_raw`), with KQL analytics | `integrations/sinks.py`, `infra/connect-fabric.sh`, `fabric/matchmind.kql` |
+| Microsoft Fabric | **Live:** every event and agent moment streams through an Eventstream into an Eventhouse (`matchmind_raw`). KQL analytics feed a Real-Time Dashboard, "MatchMind Live", with the xG race, momentum and chaos, and the hardest passes. | `integrations/sinks.py`, `infra/connect-fabric.sh`, `fabric/matchmind.kql` |
 | Azure Apps and AI services | Container Apps, Container Registry, AI Translator, Log Analytics, Application Insights (OpenTelemetry) | `infra/main.bicep`, `integrations/translator.py`, `telemetry.py` |
 | Azure databases | Cosmos DB (serverless, Entra-only) storing matches, moments and overlays | `integrations/sinks.py` |
 
@@ -72,7 +72,7 @@ It is also eligible for the Grand Prize.
 | 0:30–0:52 | Analyst and fan tickers side by side on a goal | "Same goal, two viewers. The analyst gets the xG and the tactical reason. The home fan gets 'Get in!'. Switch the fan to Spanish and the Personalizer answers in Spanish." |
 | 0:52–1:08 | Click a goal marker on the momentum timeline; the replay theatre plays it with lower thirds. Then switch Feed to Tracking. | "Any moment can be replayed in one click. No event data? Our Vision agent runs a trained model over a 10 Hz tracking feed. It found every goal in 20 held-out matches." |
 | 1:08–1:25 | Agent trace panel; a fallback status in amber | "Every handoff is traced. If Foundry slows down, a circuit breaker drops to rules, so the broadcast never stalls." |
-| 1:25–1:42 | VS Code with Copilot calling `matchmind` MCP tools; a Cosmos DB item in the portal | "Copilot and other agents can query the match through our MCP server. Everything lands in Cosmos DB and Fabric for analytics." |
+| 1:25–1:42 | VS Code with Copilot agent mode calling the `matchmind` MCP tools, then the Fabric "MatchMind Live" dashboard | "Copilot and other agents query the match through our MCP server, and every event streams live into a Microsoft Fabric Real-Time Dashboard." |
 | 1:42–1:50 | Broadcast view (full screen) | "Foundry, Agent Framework, MCP, Copilot, Container Apps, Cosmos DB, Fabric. MatchMind." |
 
 Use no copyrighted music; the YouTube Audio Library is fine. Upload as Public or Unlisted.

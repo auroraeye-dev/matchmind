@@ -11,9 +11,12 @@ param environmentName string
 param location string = resourceGroup().location
 
 @description('Foundry model to deploy')
-param modelName string = 'gpt-4o-mini'
-param modelVersion string = '2024-07-18'
+param modelName string = 'gpt-5-mini'
+param modelVersion string = '2025-08-07'
 param modelCapacity int = 50
+@description('Deployment SKU: check quota with az cognitiveservices usage list')
+@allowed([ 'Standard', 'GlobalStandard', 'DataZoneStandard' ])
+param modelSku string = 'GlobalStandard'
 
 @description('Optional Fabric Eventstream custom-endpoint connection string (create the Eventstream in Fabric first)')
 @secure()
@@ -69,6 +72,7 @@ resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-04-0
   parent: foundry
   name: 'matchmind'
   location: location
+  dependsOn: [ model ]  // the account accepts one change at a time
   identity: { type: 'SystemAssigned' }
   properties: {
     displayName: 'MatchMind'
@@ -79,7 +83,7 @@ resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-04-0
 resource model 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
   parent: foundry
   name: modelName
-  sku: { name: 'GlobalStandard', capacity: modelCapacity }
+  sku: { name: modelSku, capacity: modelCapacity }
   properties: {
     model: { format: 'OpenAI', name: modelName, version: modelVersion }
   }
@@ -206,6 +210,7 @@ var envVars = concat([
   { name: 'LLM_PROVIDER', value: 'foundry' }
   { name: 'FOUNDRY_PROJECT_ENDPOINT', value: 'https://${foundry.properties.customSubDomainName}.services.ai.azure.com/api/projects/${foundryProject.name}' }
   { name: 'FOUNDRY_MODEL', value: modelName }
+  { name: 'LLM_TIMEOUT_S', value: '20' }
   { name: 'AZURE_CLIENT_ID', value: identity.properties.clientId }
   { name: 'COSMOS_ENDPOINT', value: cosmos.properties.documentEndpoint }
   { name: 'COSMOS_DATABASE', value: 'matchmind' }
@@ -233,14 +238,14 @@ resource web 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'web'
           image: empty(webImageName) ? 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest' : webImageName
-          resources: { cpu: json('1.0'), memory: '2Gi' }
+          resources: { cpu: json('0.5'), memory: '1Gi' }  // small on purpose: stays well inside free-trial credit
           env: envVars
           probes: [
             { type: 'Liveness', httpGet: { path: '/api/health', port: 8000 }, initialDelaySeconds: 10, periodSeconds: 30 }
           ]
         }
       ]
-      scale: { minReplicas: 1, maxReplicas: 3 }
+      scale: { minReplicas: 1, maxReplicas: 2 }
     }
   }
 }

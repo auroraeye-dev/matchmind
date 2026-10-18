@@ -67,3 +67,12 @@ def test_parse_json_tolerates_fences():
     assert parse_json('```json\n{"a": 1}\n```') == {"a": 1}
     with pytest.raises(ValueError):
         parse_json("no json here")
+
+
+async def test_reasoning_models_skip_temperature(mock_url):
+    s = replace(get_settings(), llm_provider="openai", openai_base_url=mock_url, openai_api_key="test", openai_model="gpt-5-mini")
+    llm = ResilientLLM(build_provider(s), timeout_s=10)
+    await llm.complete_json("You are the Explainer agent.", "{}", agent="explainer")
+    req = seen[-1]
+    assert "temperature" not in req
+    assert (req.get("max_completion_tokens") or req.get("max_tokens") or 0) >= 2000

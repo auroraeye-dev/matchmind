@@ -52,10 +52,12 @@ def parse_json(text: str) -> dict[str, Any]:
 class AgentFrameworkProvider:
     """Runs each MatchMind role as a Microsoft Agent Framework Agent over a shared chat client."""
 
-    def __init__(self, name: str, chat_client: Any, json_mode: bool = True):
+    def __init__(self, name: str, chat_client: Any, json_mode: bool = True, model: str = ""):
         self.name = name
         self.client = chat_client
         self.json_mode = json_mode
+        # GPT-5 and o-series models reason first: no custom temperature, and reasoning uses output tokens.
+        self.reasoning = is_reasoning_model(model)
         self._agents: dict[tuple[str, str], Any] = {}
 
     def agent_for(self, role: str, instructions: str) -> Any:
@@ -68,11 +70,17 @@ class AgentFrameworkProvider:
         return self._agents[key]
 
     async def complete_json(self, system: str, user: str, max_tokens: int = 350, agent: str = "agent") -> dict[str, Any]:
-        options: dict[str, Any] = {"max_tokens": max_tokens, "temperature": 0.6}
+        options: dict[str, Any] = {"max_tokens": max(max_tokens * 6, 2000)} if self.reasoning else {
+            "max_tokens": max_tokens, "temperature": 0.6}
         if self.json_mode:
             options["response_format"] = {"type": "json_object"}
         resp = await self.agent_for(agent, system).run(user, options=options)
         return parse_json(resp.text)
+
+
+def is_reasoning_model(model: str) -> bool:
+    m = model.lower().split("/")[-1]
+    return m.startswith(("gpt-5", "o1", "o3", "o4"))
 
 
 def _resolve(s: Settings) -> str:
@@ -99,7 +107,7 @@ def build_provider(s: Settings) -> LLMProvider | None:
 
         client = FoundryChatClient(project_endpoint=s.foundry_project_endpoint, model=s.foundry_model,
                                    credential=DefaultAzureCredential())
-        return AgentFrameworkProvider(f"foundry:{s.foundry_model}", client, json_mode=False)
+        return AgentFrameworkProvider(f"foundry:{s.foundry_model}", client, json_mode=False, model=s.foundry_model)
 
     from agent_framework.openai import OpenAIChatCompletionClient
     from openai import AsyncAzureOpenAI, AsyncOpenAI
@@ -115,7 +123,7 @@ def build_provider(s: Settings) -> LLMProvider | None:
         model, label = s.github_model, f"github:{s.github_model}"
     else:
         raise ValueError(f"unknown LLM_PROVIDER {choice!r}")
-    return AgentFrameworkProvider(label, OpenAIChatCompletionClient(model=model, async_client=raw))
+    return AgentFrameworkProvider(label, OpenAIChatCompletionClient(model=model, async_client=raw), model=model)
 
 
 class ResilientLLM:

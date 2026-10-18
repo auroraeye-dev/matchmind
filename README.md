@@ -60,7 +60,7 @@ flowchart LR
     end
     INT -->|Moment| EXP --> NAR --> PER --> REN
     BB[(Shared MatchState)] -.-> EXP & NAR & PER & REN
-    FDY[Microsoft Foundry<br/>gpt-4o-mini] -.->|ResilientLLM| EXP & NAR & PER
+    FDY[Microsoft Foundry<br/>gpt-5-mini] -.->|ResilientLLM| EXP & NAR & PER
     TRL[Azure AI Translator] -.-> PER
     REN --> WS[WebSocket] --> UI[Match Centre UI]
     REN --> COS[(Azure Cosmos DB)]
@@ -124,7 +124,7 @@ The final score was exactly right in **20 of 20** matches.
 
 | Technology | Use |
 |---|---|
-| **Microsoft Foundry** | Project and `gpt-4o-mini` deployment, called keylessly with managed identity (`FoundryChatClient`) |
+| **Microsoft Foundry** | Project and `gpt-5-mini` deployment, called keylessly with managed identity (`FoundryChatClient`) |
 | **Microsoft Agent Framework** | Every model call is an Agent Framework `Agent`, one per role ([`llm/provider.py`](matchmind/llm/provider.py)) |
 | **MCP** | [`mcp_server.py`](matchmind/mcp_server.py) over stdio and streamable HTTP at `/mcp`. The **Azure MCP Server** is configured in [`.vscode/mcp.json`](.vscode/mcp.json). |
 | **GitHub Copilot agent mode** | Repo instructions in [`.github/copilot-instructions.md`](.github/copilot-instructions.md), plus MCP servers for Copilot |

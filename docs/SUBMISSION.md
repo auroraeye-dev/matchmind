@@ -28,7 +28,7 @@ MatchMind is a multi-agent system that watches a live football match and tells e
 - **Renderer** produces the lower thirds, stat cards, player tags and recaps.
 
 **Built on Microsoft:**
-- **Microsoft Foundry** (gpt-4o-mini). The agents run on the **Microsoft Agent Framework** with keyless managed identity.
+- **Microsoft Foundry** (gpt-5-mini). The agents run on the **Microsoft Agent Framework** with keyless managed identity.
 - A **MCP server** exposes match intelligence to **GitHub Copilot** and other agents. The **Azure MCP Server** is configured for operations.
 - A **GitHub Copilot SDK** agent writes post-match reports through our MCP tools, and the **GitHub CLI** publishes them.
 - The app runs on **Azure Container Apps**, with **Azure Cosmos DB** for match memory, **Azure AI Translator** for languages, and a **Microsoft Fabric** Eventstream feeding an Eventhouse for analytics.

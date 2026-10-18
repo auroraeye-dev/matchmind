@@ -54,6 +54,6 @@ class Narrator:
             "evidence": m.evidence if m.type in ("half_time", "full_time") else {},
             "snapshot": s.snapshot(),
         }
-        out = await self.llm.complete_json(SYSTEM, json.dumps(payload, default=str), max_tokens=400)
+        out = await self.llm.complete_json(SYSTEM, json.dumps(payload, default=str), max_tokens=400, agent="narrator")
         text = str(out.get("text") or "").strip()
         return Narration(moment_id=m.id, text=text[:900], source="llm") if text else base

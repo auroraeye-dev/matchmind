@@ -21,6 +21,8 @@ def _f(name: str, default: float) -> float:
 class Settings:
     # "auto" picks azure > github > offline based on which credentials exist.
     llm_provider: str
+    foundry_project_endpoint: str | None
+    foundry_model: str
     azure_endpoint: str | None
     azure_api_key: str | None
     azure_api_version: str
@@ -39,6 +41,8 @@ class Settings:
 def get_settings() -> Settings:
     return Settings(
         llm_provider=os.getenv("LLM_PROVIDER", "auto").lower(),
+        foundry_project_endpoint=os.getenv("FOUNDRY_PROJECT_ENDPOINT") or None,
+        foundry_model=os.getenv("FOUNDRY_MODEL", "gpt-4o-mini"),
         azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT") or None,
         azure_api_key=os.getenv("AZURE_OPENAI_API_KEY") or None,
         azure_api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21"),

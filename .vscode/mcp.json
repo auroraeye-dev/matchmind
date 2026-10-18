@@ -1,0 +1,19 @@
+{
+  "servers": {
+    "matchmind": {
+      "type": "stdio",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": ["-m", "matchmind.mcp_server"],
+      "cwd": "${workspaceFolder}"
+    },
+    "matchmind-cloud": {
+      "type": "http",
+      "url": "https://<your-container-app>.azurecontainerapps.io/mcp/"
+    },
+    "azure": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@azure/mcp@latest", "server", "start"]
+    }
+  }
+}

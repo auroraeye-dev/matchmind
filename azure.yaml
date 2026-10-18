@@ -1,0 +1,16 @@
+# Azure Developer CLI: `azd up` provisions infra/main.bicep and deploys the container.
+name: matchmind
+metadata:
+  template: matchmind@0.2.0
+infra:
+  provider: bicep
+  path: infra
+  module: main
+services:
+  web:
+    project: .
+    language: python
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      remoteBuild: true

@@ -49,6 +49,38 @@ def cmd_run(args: argparse.Namespace) -> None:
     asyncio.run(main())
 
 
+def cmd_eval(args: argparse.Namespace) -> None:
+    from matchmind.agents.vision import auto_event_stream, evaluate
+    from matchmind.sim.tracking import tracking_feed
+
+    totals: dict[str, list[int]] = {}
+    exact = 0
+    for seed in args.seeds:
+        meta, truth = generate_match(seed)
+        r = evaluate(truth, list(auto_event_stream(meta, tracking_feed(truth, seed))))
+        for k, v in r.items():
+            if "matched" in v:
+                t = totals.setdefault(k, [0, 0, 0])
+                t[0] += v["truth"]
+                t[1] += v["detected"]
+                t[2] += v["matched"]
+        st, sd = r["score"]["truth"], r["score"]["detected"]
+        exact += all(sd.get(k, 0) == v for k, v in st.items()) and sum(sd.values()) == sum(st.values())
+    print(f"Auto-eventing from 10 Hz tracking over {len(args.seeds)} matches")
+    for k, (t, d, m) in totals.items():
+        print(f"  {k:13s} recall {m / t:6.1%}  precision {m / d:6.1%}   (truth {t}, detected {d})")
+    print(f"  final score exactly right in {exact}/{len(args.seeds)} matches")
+
+
+def cmd_report(args: argparse.Namespace) -> None:
+    from matchmind.copilot_reporter import publish_gist, save_report, write_report
+
+    path = save_report(args.seed, asyncio.run(write_report(args.seed, model=args.model)))
+    print(f"report written to {path}")
+    if args.gist:
+        print("gist:", publish_gist(path, public=args.public))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(prog="matchmind")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -64,6 +96,15 @@ def main() -> None:
     r.add_argument("--metric", default="xg")
     r.add_argument("--trace", action="store_true")
     r.set_defaults(func=cmd_run)
+    e = sub.add_parser("eval-autoevent", help="score the Vision agent against ground truth")
+    e.add_argument("--seeds", type=int, nargs="+", default=list(range(1, 21)))
+    e.set_defaults(func=cmd_eval)
+    rp = sub.add_parser("report", help="GitHub Copilot SDK agent writes a post-match report via the MatchMind MCP tools")
+    rp.add_argument("--seed", type=int, default=7)
+    rp.add_argument("--model", default=None)
+    rp.add_argument("--gist", action="store_true", help="publish with the GitHub CLI (gh gist create)")
+    rp.add_argument("--public", action="store_true")
+    rp.set_defaults(func=cmd_report)
     args = ap.parse_args()
     args.func(args)
 

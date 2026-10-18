@@ -33,7 +33,7 @@ MAX_BACKLOG = 6  # pending moments before low-importance ones skip the LLM
 
 class Orchestrator:
     def __init__(self, meta: MatchMeta, personas: list[Persona], publish: Publish,
-                 settings: Settings | None = None, llm: ResilientLLM | None = None):
+                 settings: Settings | None = None, llm: ResilientLLM | None = None, translator: Any = None):
         self.settings = settings or get_settings()
         self.llm = llm or ResilientLLM(
             build_provider(self.settings), self.settings.llm_timeout_s, self.settings.llm_max_concurrency
@@ -43,6 +43,7 @@ class Orchestrator:
         self.narrator = Narrator(self.llm)
         self.personalizer = Personalizer(self.llm, self.settings.llm_min_importance)
         self.renderer = Renderer()
+        self.translator = translator  # Azure AI Translator, used when the LLM did not translate
         self.personas: dict[str, Persona] = {p.id: p for p in personas}
         self.publish = publish
         self.pending: set[asyncio.Task] = set()
@@ -101,6 +102,8 @@ class Orchestrator:
                 pn = await self._stage("personalizer", m, p.id, shed,
                                        lambda: self.personalizer.run(m, x, n, p, s, rel),
                                        lambda: rules_personalize(m, x, n, p, s, rel))
+                if self.translator and p.language != "en" and pn.language != p.language:
+                    pn = await self._translate(m, p, pn)
                 t0 = time.perf_counter()
                 for ov in self.renderer.render(m, pn, p, s):
                     await self.publish({"type": "overlay", "overlay": ov.model_dump(mode="json")})
@@ -111,6 +114,18 @@ class Orchestrator:
         except Exception as exc:
             await self._trace(TraceRecord(agent="orchestrator", moment_id=m.id, status="error", source="none",
                                           ms=0.0, note=f"{type(exc).__name__}: {exc}"))
+
+    async def _translate(self, m: Moment, p: Persona, pn: Any) -> Any:
+        t0 = time.perf_counter()
+        try:
+            (body,) = await self.translator.translate([pn.body], to=p.language)
+            pn = pn.model_copy(update={"body": body, "language": p.language})
+            status, note = "ok", f"en→{p.language}"
+        except Exception as exc:
+            status, note = "fallback", f"{type(exc).__name__}: {exc}"[:120]
+        await self._trace(TraceRecord(agent="translator", moment_id=m.id, persona_id=p.id, status=status,
+                                      source="rules", ms=(time.perf_counter() - t0) * 1000, note=note))
+        return pn
 
     async def _stage(self, agent: str, m: Moment, persona_id: str | None, shed: bool,
                      run: Callable[[], Awaitable[Any]], fallback: Callable[[], Any]) -> Any:

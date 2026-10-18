@@ -134,7 +134,7 @@ class Personalizer:
         }
         payload = {"persona": persona, "moment_type": m.type, "clock": m.clock,
                    "commentary": n.text, "explanation": x.model_dump(include={"headline", "why", "evidence"})}
-        out = await self.llm.complete_json(SYSTEM, json.dumps(payload, ensure_ascii=False, default=str), max_tokens=250)
+        out = await self.llm.complete_json(SYSTEM, json.dumps(payload, ensure_ascii=False, default=str), max_tokens=250, agent="personalizer")
         return PersonalizedNarrative(
             moment_id=m.id, persona_id=p.id,
             headline=str(out.get("headline") or base.headline)[:90],

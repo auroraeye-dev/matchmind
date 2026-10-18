@@ -1,9 +1,15 @@
 """LLM providers behind one tiny interface, plus a circuit breaker.
 
-Supported (pick via LLM_PROVIDER, or "auto"):
-  azure   - Azure OpenAI / Microsoft Foundry deployment (AZURE_OPENAI_*)
-  openai  - any OpenAI-compatible endpoint, e.g. a Foundry project's /openai/v1 (OPENAI_*)
-  github  - GitHub Models, free for prototyping with a GitHub token (GITHUB_TOKEN)
+Every model call runs through a Microsoft Agent Framework ``Agent`` (one per
+MatchMind agent role), so the Explainer, Narrator and Personalizer are real
+Agent Framework agents with their own instructions, telemetry and middleware.
+
+Backends (pick via LLM_PROVIDER, or "auto"):
+  foundry - Microsoft Foundry project endpoint + Entra ID (FOUNDRY_PROJECT_ENDPOINT, FOUNDRY_MODEL);
+            keyless in Azure via managed identity
+  azure   - Azure OpenAI deployment with key (AZURE_OPENAI_*)
+  openai  - any OpenAI-compatible endpoint (OPENAI_*)
+  github  - GitHub Models, free prototyping with a GitHub token (GITHUB_TOKEN)
   offline - no LLM; every agent uses its deterministic rules path
 """
 
@@ -11,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from typing import Any, Protocol
 
@@ -24,57 +31,91 @@ class LLMUnavailable(RuntimeError):
 class LLMProvider(Protocol):
     name: str
 
-    async def complete_json(self, system: str, user: str, max_tokens: int = 350) -> dict[str, Any]: ...
+    async def complete_json(self, system: str, user: str, max_tokens: int = 350, agent: str = "agent") -> dict[str, Any]: ...
 
 
-class _ChatProvider:
-    """Shared chat-completions call for any client exposing the OpenAI SDK surface."""
+def parse_json(text: str) -> dict[str, Any]:
+    """Models sometimes wrap JSON in prose or code fences; take the first object."""
+    text = (text or "").strip()
+    try:
+        out = json.loads(text)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", text, re.S)
+        if not m:
+            raise ValueError(f"no JSON object in model output: {text[:80]!r}") from None
+        out = json.loads(m.group(0))
+    if not isinstance(out, dict):
+        raise ValueError("model output is not a JSON object")
+    return out
 
-    def __init__(self, name: str, client: Any, model: str):
+
+class AgentFrameworkProvider:
+    """Runs each MatchMind role as a Microsoft Agent Framework Agent over a shared chat client."""
+
+    def __init__(self, name: str, chat_client: Any, json_mode: bool = True):
         self.name = name
-        self.client = client
-        self.model = model
+        self.client = chat_client
+        self.json_mode = json_mode
+        self._agents: dict[tuple[str, str], Any] = {}
 
-    async def complete_json(self, system: str, user: str, max_tokens: int = 350) -> dict[str, Any]:
-        resp = await self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            response_format={"type": "json_object"},
-            max_tokens=max_tokens,
-            temperature=0.6,
-        )
-        return json.loads(resp.choices[0].message.content or "{}")
+    def agent_for(self, role: str, instructions: str) -> Any:
+        from agent_framework import Agent
+
+        key = (role, instructions)
+        if key not in self._agents:
+            self._agents[key] = Agent(self.client, instructions=instructions, name=f"matchmind-{role}",
+                                      description=f"MatchMind {role} agent")
+        return self._agents[key]
+
+    async def complete_json(self, system: str, user: str, max_tokens: int = 350, agent: str = "agent") -> dict[str, Any]:
+        options: dict[str, Any] = {"max_tokens": max_tokens, "temperature": 0.6}
+        if self.json_mode:
+            options["response_format"] = {"type": "json_object"}
+        resp = await self.agent_for(agent, system).run(user, options=options)
+        return parse_json(resp.text)
+
+
+def _resolve(s: Settings) -> str:
+    if s.llm_provider != "auto":
+        return s.llm_provider
+    if s.foundry_project_endpoint:
+        return "foundry"
+    if s.azure_endpoint and s.azure_api_key:
+        return "azure"
+    if s.openai_base_url and s.openai_api_key:
+        return "openai"
+    if s.github_token:
+        return "github"
+    return "offline"
 
 
 def build_provider(s: Settings) -> LLMProvider | None:
-    choice = s.llm_provider
-    if choice == "auto":
-        if s.azure_endpoint and s.azure_api_key:
-            choice = "azure"
-        elif s.openai_base_url and s.openai_api_key:
-            choice = "openai"
-        elif s.github_token:
-            choice = "github"
-        else:
-            choice = "offline"
+    choice = _resolve(s)
+    if choice == "offline":
+        return None
+    if choice == "foundry":
+        from agent_framework.foundry import FoundryChatClient
+        from azure.identity.aio import DefaultAzureCredential
+
+        client = FoundryChatClient(project_endpoint=s.foundry_project_endpoint, model=s.foundry_model,
+                                   credential=DefaultAzureCredential())
+        return AgentFrameworkProvider(f"foundry:{s.foundry_model}", client, json_mode=False)
+
+    from agent_framework.openai import OpenAIChatCompletionClient
+    from openai import AsyncAzureOpenAI, AsyncOpenAI
 
     if choice == "azure":
-        from openai import AsyncAzureOpenAI
-
-        client = AsyncAzureOpenAI(
-            azure_endpoint=s.azure_endpoint, api_key=s.azure_api_key, api_version=s.azure_api_version
-        )
-        return _ChatProvider(f"azure:{s.azure_deployment}", client, s.azure_deployment)
-    if choice == "openai":
-        from openai import AsyncOpenAI
-
-        return _ChatProvider(f"openai:{s.openai_model}", AsyncOpenAI(base_url=s.openai_base_url, api_key=s.openai_api_key), s.openai_model)
-    if choice == "github":
-        from openai import AsyncOpenAI
-
-        client = AsyncOpenAI(base_url="https://models.github.ai/inference", api_key=s.github_token)
-        return _ChatProvider(f"github:{s.github_model}", client, s.github_model)
-    return None
+        raw = AsyncAzureOpenAI(azure_endpoint=s.azure_endpoint, api_key=s.azure_api_key, api_version=s.azure_api_version)
+        model, label = s.azure_deployment, f"azure:{s.azure_deployment}"
+    elif choice == "openai":
+        raw = AsyncOpenAI(base_url=s.openai_base_url, api_key=s.openai_api_key)
+        model, label = s.openai_model, f"openai:{s.openai_model}"
+    elif choice == "github":
+        raw = AsyncOpenAI(base_url="https://models.github.ai/inference", api_key=s.github_token)
+        model, label = s.github_model, f"github:{s.github_model}"
+    else:
+        raise ValueError(f"unknown LLM_PROVIDER {choice!r}")
+    return AgentFrameworkProvider(label, OpenAIChatCompletionClient(model=model, async_client=raw))
 
 
 class ResilientLLM:
@@ -114,13 +155,13 @@ class ResilientLLM:
             "errors": self.errors,
         }
 
-    async def complete_json(self, system: str, user: str, max_tokens: int = 350) -> dict[str, Any]:
+    async def complete_json(self, system: str, user: str, max_tokens: int = 350, agent: str = "agent") -> dict[str, Any]:
         if not self.available:
             raise LLMUnavailable("offline" if self.provider is None else "circuit open")
         async with self.sem:
             self.calls += 1
             try:
-                out = await asyncio.wait_for(self.provider.complete_json(system, user, max_tokens), self.timeout_s)
+                out = await asyncio.wait_for(self.provider.complete_json(system, user, max_tokens, agent=agent), self.timeout_s)
             except Exception as exc:
                 self.errors += 1
                 self.failures += 1

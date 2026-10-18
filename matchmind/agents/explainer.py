@@ -22,6 +22,11 @@ SYSTEM = (
 )
 
 
+def poss(name: str) -> str:
+    """English possessive: "Rovers'" but "Harbor City FC's"."""
+    return f"{name}'" if name.endswith("s") else f"{name}'s"
+
+
 def _pct(v: float | None) -> str:
     return f"{v:.0f}%" if v is not None else "n/a"
 
@@ -36,17 +41,17 @@ def rules_explain(m: Moment, s: MatchState) -> Explanation:
     if t == "goal":
         xg = e.get("xg", 0)
         quality = "a low-probability finish" if xg < 0.1 else "a well-worked chance" if xg < 0.3 else "a high-quality chance"
-        assist = f" after {s.name(e['assist_id'])}'s pass" if e.get("assist_id") else ""
+        assist = f" after {poss(s.name(e['assist_id']))} pass" if e.get("assist_id") else ""
         headline = f"GOAL! {who} scores for {team}"
         why = f"{who} finished from {e.get('distance_m', 0):.0f}m{assist}, {quality} ({xg:.2f} xG). {e.get('score', '')}."
         ev = [f"Shot xG {xg:.2f}", f"Distance {e.get('distance_m', 0):.0f}m",
               f"xG {team} {e.get('team_xg', 0):.2f} vs {opp} {e.get('opponent_xg', 0):.2f}"]
         if e.get("player_goals", 0) >= 2:
-            ev.append(f"{who}'s goal #{e['player_goals']} today")
+            ev.append(f"{poss(who)} goal #{e['player_goals']} today")
     elif t == "big_chance":
         outcome = {"saved": "kept out by the keeper", "off_target": "sent wide", "blocked": "blocked"}.get(e.get("outcome"), "missed")
         headline = f"Big chance for {team}"
-        why = f"{who}'s {e.get('xg', 0):.2f} xG effort was {outcome}. {team} have now created {e.get('team_xg', 0):.2f} xG to {opp}'s {e.get('opponent_xg', 0):.2f}."
+        why = f"{poss(who)} {e.get('xg', 0):.2f} xG effort was {outcome}. {team} have now created {e.get('team_xg', 0):.2f} xG to {poss(opp)} {e.get('opponent_xg', 0):.2f}."
         ev = [f"Chance quality {e.get('xg', 0):.2f} xG", f"Distance {e.get('distance_m', 0):.0f}m",
               f"Shot speed {e.get('shot_speed_kmh', 0):.0f} km/h"]
     elif t == "momentum_swing":
@@ -56,7 +61,7 @@ def rules_explain(m: Moment, s: MatchState) -> Explanation:
         ev = [f"Momentum index {e.get('momentum', 0):+.2f}", f"{e.get('final_third_entries_5min', 0)} final-third entries (5 min)",
               f"Possession (5 min) {_pct(e.get('possession_last_5min_pct'))}"]
     elif t == "pressure_spike":
-        headline = f"{team}'s press forces a turnover"
+        headline = f"{poss(team)} press forces a turnover"
         why = f"{e.get('pressures_in_30s', 0)} pressing actions in 30 seconds won the ball back {e.get('turnover_zone', '')}."
         ev = [f"{e.get('pressures_in_30s', 0)} pressures in 30s", f"Turnover {e.get('turnover_zone', '')}",
               f"{e.get('team_pressures_total', 0)} pressures in the match"]
@@ -82,7 +87,7 @@ def rules_explain(m: Moment, s: MatchState) -> Explanation:
         ev = [f"Possession (5 min) {_pct(e.get('possession_last_5min_pct'))}", f"Chaos index {e.get('chaos_index', 0):.2f}"]
     elif t == "milestone":
         headline = f"{who}: {e.get('value')} {e.get('stat')}"
-        why = f"{who} reaches {e.get('value')} {e.get('stat')} and is at the heart of {team}'s play."
+        why = f"{who} reaches {e.get('value')} {e.get('stat')} and is at the heart of {poss(team)} play."
         ev = [f"{e.get('value')} {e.get('stat')}"]
     elif t == "card":
         headline = f"Yellow card for {who}"
@@ -127,7 +132,7 @@ class Explainer:
             "snapshot": s.snapshot(),
             "rules_draft": base.model_dump(include={"headline", "why", "evidence"}),
         }
-        out = await self.llm.complete_json(SYSTEM, json.dumps(payload, default=str))
+        out = await self.llm.complete_json(SYSTEM, json.dumps(payload, default=str), agent="explainer")
         return Explanation(
             moment_id=m.id,
             headline=str(out.get("headline") or base.headline)[:90],

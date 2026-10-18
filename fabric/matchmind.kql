@@ -1,0 +1,27 @@
+// Microsoft Fabric Eventhouse (KQL) queries over the MatchMind Eventstream.
+// Eventstream: source = Custom endpoint (MatchMind), destination = Eventhouse table `matchmind_raw`.
+
+// 1. Live xG race per team, per minute
+matchmind_raw
+| where record == "event" and type == "shot"
+| summarize xg = sum(todouble(xg)) by match_id, team_id, minute = bin(todouble(t) / 60, 1)
+| order by match_id asc, team_id asc, minute asc
+| extend cum_xg = row_cumsum(xg, match_id != prev(match_id) or team_id != prev(team_id))
+
+// 2. Momentum and chaos over time (rendered as a time chart)
+matchmind_raw
+| where record == "event"
+| summarize momentum = avg(todouble(momentum)), chaos = avg(todouble(chaos)) by match_id, minute = bin(todouble(t) / 60, 1)
+| render timechart
+
+// 3. Hardest completed passes (pass difficulty computed by the Interpreter agent)
+matchmind_raw
+| where record == "event" and type == "pass" and outcome == "success"
+| top 20 by todouble(d_pass_difficulty) desc
+| project match_id, clock, player_id, d_pass_length_m, d_pass_difficulty, pressure, ball_speed_kmh
+
+// 4. Moments the agents flagged, by type and importance
+matchmind_raw
+| where record == "moment"
+| summarize count(), avg_importance = avg(todouble(importance)) by type
+| order by avg_importance desc

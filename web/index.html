@@ -3,104 +3,181 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MatchMind</title>
+  <title>MatchMind · Match Centre</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand"><span class="dot"></span>MatchMind <small>explainable match intelligence · synthetic data</small></div>
-    <div class="scoreboard" id="scoreboard">
-      <span class="team home" id="homeName">Home</span>
-      <span class="score" id="score">0 – 0</span>
-      <span class="team away" id="awayName">Away</span>
-      <span class="clock" id="clock">00:00</span>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="wordmark" href="/"><span class="mark" aria-hidden="true"></span>MATCH<b>MIND</b></a>
+      <ul class="nav-links">
+        <li><a class="active" href="#centre">Match Centre</a></li>
+        <li><a href="#tickers">Live Ticker</a></li>
+        <li><a href="#stats">Stats</a></li>
+        <li><a href="#lineups">Line-ups</a></li>
+        <li><a href="#agents">Agents</a></li>
+      </ul>
+      <span class="chip" id="llmChip" title="Model backend">AI · offline</span>
     </div>
-    <div class="controls">
-      <label>Seed <input id="seed" type="number" value="7" min="0" max="99999" /></label>
-      <label>Speed <select id="speed">
-        <option value="20">20×</option><option value="40" selected>40×</option>
-        <option value="80">80×</option><option value="160">160×</option>
-      </select></label>
-      <button id="startBtn" class="primary">Kick off</button>
-      <button id="pauseBtn" disabled>Pause</button>
-      <span class="chip" id="llmChip" title="LLM provider">LLM: …</span>
+  </nav>
+
+  <header class="hero" id="centre">
+    <div class="hero-stripes" aria-hidden="true"></div>
+    <div class="hero-inner">
+      <div class="hero-meta">
+        <span id="competition">MatchMind Synthetic League</span>
+        <span class="sep">•</span><span id="venue">—</span>
+        <span class="sep">•</span><span id="weather">—</span>
+        <span class="synthetic-badge">Synthetic data</span>
+      </div>
+      <div class="scoreline">
+        <div class="side home">
+          <div class="crest" id="homeCrest"></div>
+          <div class="club"><span class="club-name" id="homeName">Home</span><ul class="scorers" id="homeScorers"></ul></div>
+        </div>
+        <div class="centre">
+          <div class="score"><span id="homeScore">0</span><span class="dash">:</span><span id="awayScore">0</span></div>
+          <div class="status"><span class="live-dot" id="liveDot"></span><span id="clock">Pre-match</span></div>
+          <div class="xg-line" id="xgLine">xG 0.00 – 0.00</div>
+        </div>
+        <div class="side away">
+          <div class="club"><span class="club-name" id="awayName">Away</span><ul class="scorers" id="awayScorers"></ul></div>
+          <div class="crest" id="awayCrest"></div>
+        </div>
+      </div>
+      <div class="flow">
+        <div class="flow-head"><span>Match momentum</span><span class="flow-legend"><i class="lg home"></i><span id="lgHome">Home</span><i class="lg away"></i><span id="lgAway">Away</span></span></div>
+        <svg id="flow" viewBox="0 0 960 120" preserveAspectRatio="none" aria-label="Match momentum over time">
+          <line x1="0" y1="60" x2="960" y2="60" class="flow-mid" />
+          <line x1="480" y1="0" x2="480" y2="120" class="flow-ht" />
+          <path id="flowHome" class="flow-home" d="" />
+          <path id="flowAway" class="flow-away" d="" />
+          <g id="flowMarks"></g>
+        </svg>
+        <div class="flow-axis"><span>0'</span><span>15'</span><span>30'</span><span>HT</span><span>60'</span><span>75'</span><span>90'</span></div>
+      </div>
     </div>
   </header>
 
-  <main class="layout">
-    <section class="stage">
+  <section class="controlbar">
+    <div class="container controls">
+      <label>Match seed <input id="seed" type="number" value="7" min="0" max="99999" /></label>
+      <label>Speed <select id="speed">
+        <option value="20">20×</option><option value="40" selected>40×</option><option value="80">80×</option><option value="160">160×</option>
+      </select></label>
+      <label>Feed <select id="feed">
+        <option value="events">Event feed</option><option value="tracking">Tracking feed (auto-eventing)</option>
+      </select></label>
+      <button id="startBtn" class="btn primary">Kick off</button>
+      <button id="pauseBtn" class="btn" disabled>Pause</button>
+      <span class="event-line" id="eventLine">Choose a seed and kick off a synthetic match.</span>
+    </div>
+  </section>
+
+  <main class="container grid">
+    <section class="card pitch-card">
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-view="live" role="tab">Live pitch</button>
+        <button class="tab" data-view="shots" role="tab">Shot map</button>
+        <div class="meters-inline">
+          <span class="mini"><b>Control ↔ Chaos</b><span class="mbar"><i id="chaosFill"></i></span><em id="chaosVal">—</em></span>
+        </div>
+      </div>
       <div class="pitch-wrap">
-        <svg id="pitch" viewBox="-2 -2 109 72" preserveAspectRatio="xMidYMid meet" aria-label="Pitch">
-          <rect x="0" y="0" width="105" height="68" class="grass" />
+        <svg id="pitch" viewBox="-3 -3 111 74" preserveAspectRatio="xMidYMid meet" aria-label="Pitch">
+          <defs>
+            <pattern id="mow" width="10.5" height="68" patternUnits="userSpaceOnUse">
+              <rect width="5.25" height="68" fill="#2f8f4e" /><rect x="5.25" width="5.25" height="68" fill="#2a8547" />
+            </pattern>
+          </defs>
+          <rect x="0" y="0" width="105" height="68" fill="url(#mow)" />
           <g class="lines">
             <rect x="0" y="0" width="105" height="68" />
             <line x1="52.5" y1="0" x2="52.5" y2="68" />
-            <circle cx="52.5" cy="34" r="9.15" />
-            <rect x="0" y="13.84" width="16.5" height="40.32" />
-            <rect x="88.5" y="13.84" width="16.5" height="40.32" />
-            <rect x="0" y="24.84" width="5.5" height="18.32" />
-            <rect x="99.5" y="24.84" width="5.5" height="18.32" />
-            <rect x="-1.5" y="30.34" width="1.5" height="7.32" class="goal" />
-            <rect x="105" y="30.34" width="1.5" height="7.32" class="goal" />
+            <circle cx="52.5" cy="34" r="9.15" /><circle cx="52.5" cy="34" r=".4" class="spot" />
+            <rect x="0" y="13.84" width="16.5" height="40.32" /><rect x="88.5" y="13.84" width="16.5" height="40.32" />
+            <rect x="0" y="24.84" width="5.5" height="18.32" /><rect x="99.5" y="24.84" width="5.5" height="18.32" />
+            <circle cx="11" cy="34" r=".4" class="spot" /><circle cx="94" cy="34" r=".4" class="spot" />
+            <path d="M16.5 26.7 A9.15 9.15 0 0 1 16.5 41.3" /><path d="M88.5 26.7 A9.15 9.15 0 0 0 88.5 41.3" />
+            <rect x="-1.6" y="30.34" width="1.6" height="7.32" class="goal" /><rect x="105" y="30.34" width="1.6" height="7.32" class="goal" />
           </g>
-          <g id="trail"></g>
-          <g id="tags"></g>
-          <circle id="ball" cx="52.5" cy="34" r="1.1" />
+          <g id="liveLayer"><g id="trail"></g><g id="tags"></g><circle id="ball" cx="52.5" cy="34" r="1.15" /></g>
+          <g id="shotLayer" style="display:none"></g>
         </svg>
-        <div class="event-line" id="eventLine">Press “Kick off” to stream a synthetic match.</div>
+        <div class="pitch-legend" id="pitchLegend"></div>
       </div>
-
-      <div class="meters">
-        <div class="meter">
-          <div class="meter-label"><span>Momentum (last 5 min)</span><span id="momVal">0</span></div>
-          <div class="bar diverging"><div class="fill" id="momFill"></div><div class="mid"></div></div>
-        </div>
-        <div class="meter">
-          <div class="meter-label"><span>Control ↔ Chaos</span><span id="chaosVal">0.00</span></div>
-          <div class="bar"><div class="fill chaos" id="chaosFill"></div></div>
-        </div>
-        <div class="meter">
-          <div class="meter-label"><span>Possession</span><span id="possVal">50 / 50</span></div>
-          <div class="bar split"><div class="fill home-fill" id="possFill"></div></div>
-        </div>
+      <div class="meter-row">
+        <div class="meter"><div class="meter-label"><span>Possession</span><span id="possVal">50 – 50</span></div>
+          <div class="split"><i id="possFill"></i></div></div>
+        <div class="meter"><div class="meter-label"><span>Possession · last 5'</span><span id="poss5Val">50 – 50</span></div>
+          <div class="split"><i id="poss5Fill"></i></div></div>
       </div>
-
-      <table class="stats" id="statsTable">
-        <thead><tr><th id="thHome">Home</th><th></th><th id="thAway">Away</th></tr></thead>
-        <tbody></tbody>
-      </table>
     </section>
 
-    <section class="personas" id="personas"></section>
+    <section class="tickers" id="tickers"></section>
 
-    <section class="trace">
-      <h3>Agent trace <small>interpreter → explainer → narrator → personalizer → renderer</small></h3>
+    <section class="card stats-card" id="stats">
+      <h2 class="card-title">Match stats</h2>
+      <div class="stat-head"><span id="statHome">Home</span><span id="statAway">Away</span></div>
+      <div id="statBars"></div>
+    </section>
+
+    <section class="card lineups-card" id="lineups">
+      <h2 class="card-title">Line-ups <small>click a player to follow them in a ticker</small></h2>
+      <div class="lineups">
+        <div><h3 id="luHome">Home</h3><ol id="luHomeList"></ol></div>
+        <div><h3 id="luAway">Away</h3><ol id="luAwayList"></ol></div>
+      </div>
+    </section>
+
+    <section class="card performers-card">
+      <h2 class="card-title">Top performers</h2>
+      <ol class="performers" id="performers"><li class="empty">Kick off to see live ratings.</li></ol>
+    </section>
+
+    <section class="card agents-card" id="agents">
+      <h2 class="card-title">Agent trace <small>Vision → Interpreter → Explainer → Narrator → Personalizer → Renderer · Microsoft Agent Framework</small></h2>
+      <div class="pipeline" id="pipeline">
+        <div class="stage" data-agent="vision"><b>Vision</b><span>auto-eventing</span><em>0</em></div>
+        <div class="stage" data-agent="interpreter"><b>Interpreter</b><span>stats · patterns</span><em>0</em></div>
+        <div class="stage" data-agent="explainer"><b>Explainer</b><span>why it matters</span><em>0</em></div>
+        <div class="stage" data-agent="narrator"><b>Narrator</b><span>commentary</span><em>0</em></div>
+        <div class="stage" data-agent="personalizer"><b>Personalizer</b><span>per viewer</span><em>0</em></div>
+        <div class="stage" data-agent="renderer"><b>Renderer</b><span>overlays</span><em>0</em></div>
+      </div>
       <div class="trace-stats" id="traceStats"></div>
       <ol id="traceList"></ol>
     </section>
   </main>
 
-  <template id="personaTpl">
-    <article class="persona">
-      <header>
-        <input class="p-label" value="Viewer" aria-label="Persona name" />
-        <span class="p-count">0 moments</span>
+  <footer class="footer"><div class="container">MatchMind · built for the Inside the Game Developer Hackathon · all clubs, players and data are synthetic.</div></footer>
+
+  <template id="tickerTpl">
+    <article class="card ticker">
+      <header class="ticker-head">
+        <input class="t-label" value="Viewer" aria-label="Viewer name" />
+        <span class="t-count">0</span>
       </header>
-      <div class="p-controls">
-        <label>Mode <select class="p-mode"><option value="analyst">Analyst</option><option value="casual">Casual fan</option></select></label>
-        <label>Club <select class="p-team"><option value="">Neutral</option></select></label>
-        <label>Focus <select class="p-player"><option value="">No player</option></select></label>
-        <label>Language <select class="p-lang">
+      <div class="t-controls">
+        <label>Mode<select class="p-mode"><option value="analyst">Analyst</option><option value="casual">Casual fan</option></select></label>
+        <label>Club<select class="p-team"><option value="">Neutral</option></select></label>
+        <label>Follow<select class="p-player"><option value="">No player</option></select></label>
+        <label>Language<select class="p-lang">
           <option value="en">English</option><option value="es">Español</option><option value="fr">Français</option>
           <option value="pt">Português</option><option value="hi">हिन्दी</option><option value="ar">العربية</option>
         </select></label>
-        <label>Metric <select class="p-metric">
-          <option value="xg">xG</option><option value="possession">Possession</option>
-          <option value="pass_accuracy">Passing</option><option value="pressure">Pressing</option>
-          <option value="distance">Physical</option>
+        <label>Metric<select class="p-metric">
+          <option value="xg">xG</option><option value="possession">Possession</option><option value="pass_accuracy">Passing</option>
+          <option value="pressure">Pressing</option><option value="distance">Physical</option>
         </select></label>
       </div>
-      <div class="onair empty"><div class="onair-inner"><span class="onair-tag">ON AIR</span><h4>Waiting for kickoff</h4><p></p><div class="rows"></div></div></div>
+      <div class="onair idle">
+        <div class="onair-bar"><span class="onair-live">LIVE</span><span class="onair-meta">Waiting for kick-off</span></div>
+        <h4>—</h4><p></p><div class="rows"></div>
+      </div>
       <ol class="feed"></ol>
     </article>
   </template>

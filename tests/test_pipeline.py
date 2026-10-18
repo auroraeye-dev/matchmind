@@ -115,7 +115,7 @@ class FakeLLM:
         self.fail = fail
         self.calls = 0
 
-    async def complete_json(self, system, user, max_tokens=350):
+    async def complete_json(self, system, user, max_tokens=350, agent="agent"):
         self.calls += 1
         if self.fail:
             raise TimeoutError("model down")
@@ -167,3 +167,39 @@ def test_server_rest_and_websocket(monkeypatch):
             if msg["type"] == "end":
                 break
     assert kinds["meta"] == 1 and kinds["event"] > 1000 and kinds["overlay"] > 10
+
+
+# ---------------------------------------------------------------- auto-eventing
+
+
+def test_vision_auto_eventing_accuracy():
+    from matchmind.agents.vision import auto_event_stream, evaluate
+    from matchmind.sim.tracking import tracking_feed
+
+    for seed in (3, 11):
+        meta, truth = generate_match(seed)
+        detected = list(auto_event_stream(meta, tracking_feed(truth, seed)))
+        r = evaluate(truth, detected)
+        assert r["pass"]["recall"] > 0.95 and r["pass"]["precision"] > 0.95
+        assert r["score"]["detected"] == {k: v for k, v in r["score"]["truth"].items() if v}
+        assert [e.t for e in detected] == sorted(e.t for e in detected)
+
+
+async def test_tracking_feed_runs_through_agents():
+    from matchmind.agents.vision import auto_event_stream
+    from matchmind.sim.tracking import tracking_feed
+
+    meta, truth = generate_match(5)
+    out = []
+
+    async def pub(m):
+        out.append(m)
+
+    orch = Orchestrator(meta, _personas(meta), pub, settings=get_settings(), llm=ResilientLLM(None))
+    for e in auto_event_stream(meta, tracking_feed(truth, 5)):
+        await orch.on_event(e)
+        await asyncio.sleep(0)
+    await orch.drain()
+    goals = [m for m in out if m["type"] == "moment" and m["moment"]["type"] == "goal"]
+    assert len(goals) == sum(truth[-1].extra["score"].values())
+    assert any(m["type"] == "overlay" and m["overlay"]["kind"] == "recap" for m in out)

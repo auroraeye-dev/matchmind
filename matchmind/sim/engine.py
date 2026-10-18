@@ -200,7 +200,7 @@ class MatchSimulator:
             while self.t < end:
                 yield from self._maybe_subs()
                 yield from self._step()
-            self.t = end
+            self.t = max(self.t, end)
             yield self._emit(
                 EventType.HALF_TIME if period == 1 else EventType.FULL_TIME,
                 extra={"score": dict(self.score)},

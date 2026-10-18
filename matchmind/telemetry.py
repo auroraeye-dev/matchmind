@@ -26,6 +26,7 @@ def setup_telemetry() -> bool:
         from azure.monitor.opentelemetry import configure_azure_monitor
 
         configure_azure_monitor(connection_string=conn, resource_attributes={"service.name": "matchmind"})
+        logging.getLogger("azure").setLevel(logging.WARNING)  # the exporter logs every HTTP call at INFO
         from agent_framework.observability import enable_instrumentation
 
         enable_instrumentation()

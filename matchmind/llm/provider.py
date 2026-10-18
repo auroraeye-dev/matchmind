@@ -52,12 +52,13 @@ def parse_json(text: str) -> dict[str, Any]:
 class AgentFrameworkProvider:
     """Runs each MatchMind role as a Microsoft Agent Framework Agent over a shared chat client."""
 
-    def __init__(self, name: str, chat_client: Any, json_mode: bool = True, model: str = ""):
+    def __init__(self, name: str, chat_client: Any, json_mode: bool = True, model: str = "", responses_api: bool = False):
         self.name = name
         self.client = chat_client
         self.json_mode = json_mode
         # GPT-5 and o-series models reason first: no custom temperature, and reasoning uses output tokens.
         self.reasoning = is_reasoning_model(model)
+        self.responses_api = responses_api
         self._agents: dict[tuple[str, str], Any] = {}
 
     def agent_for(self, role: str, instructions: str) -> Any:
@@ -72,6 +73,10 @@ class AgentFrameworkProvider:
     async def complete_json(self, system: str, user: str, max_tokens: int = 350, agent: str = "agent") -> dict[str, Any]:
         options: dict[str, Any] = {"max_tokens": max(max_tokens * 6, 2000)} if self.reasoning else {
             "max_tokens": max_tokens, "temperature": 0.6}
+        if self.reasoning and self.responses_api:
+            # live commentary needs speed, not deep thought: minimal reasoning answers in ~1-2 s
+            options["reasoning"] = {"effort": "minimal"}
+            options["verbosity"] = "low"
         if self.json_mode:
             options["response_format"] = {"type": "json_object"}
         resp = await self.agent_for(agent, system).run(user, options=options)
@@ -107,7 +112,8 @@ def build_provider(s: Settings) -> LLMProvider | None:
 
         client = FoundryChatClient(project_endpoint=s.foundry_project_endpoint, model=s.foundry_model,
                                    credential=DefaultAzureCredential())
-        return AgentFrameworkProvider(f"foundry:{s.foundry_model}", client, json_mode=False, model=s.foundry_model)
+        return AgentFrameworkProvider(f"foundry:{s.foundry_model}", client, json_mode=False, model=s.foundry_model,
+                                      responses_api=True)
 
     from agent_framework.openai import OpenAIChatCompletionClient
     from openai import AsyncAzureOpenAI, AsyncOpenAI

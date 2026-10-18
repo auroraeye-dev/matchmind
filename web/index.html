@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MatchMind</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="dot"></span>MatchMind <small>explainable match intelligence · synthetic data</small></div>
+    <div class="scoreboard" id="scoreboard">
+      <span class="team home" id="homeName">Home</span>
+      <span class="score" id="score">0 – 0</span>
+      <span class="team away" id="awayName">Away</span>
+      <span class="clock" id="clock">00:00</span>
+    </div>
+    <div class="controls">
+      <label>Seed <input id="seed" type="number" value="7" min="0" max="99999" /></label>
+      <label>Speed <select id="speed">
+        <option value="20">20×</option><option value="40" selected>40×</option>
+        <option value="80">80×</option><option value="160">160×</option>
+      </select></label>
+      <button id="startBtn" class="primary">Kick off</button>
+      <button id="pauseBtn" disabled>Pause</button>
+      <span class="chip" id="llmChip" title="LLM provider">LLM: …</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="stage">
+      <div class="pitch-wrap">
+        <svg id="pitch" viewBox="-2 -2 109 72" preserveAspectRatio="xMidYMid meet" aria-label="Pitch">
+          <rect x="0" y="0" width="105" height="68" class="grass" />
+          <g class="lines">
+            <rect x="0" y="0" width="105" height="68" />
+            <line x1="52.5" y1="0" x2="52.5" y2="68" />
+            <circle cx="52.5" cy="34" r="9.15" />
+            <rect x="0" y="13.84" width="16.5" height="40.32" />
+            <rect x="88.5" y="13.84" width="16.5" height="40.32" />
+            <rect x="0" y="24.84" width="5.5" height="18.32" />
+            <rect x="99.5" y="24.84" width="5.5" height="18.32" />
+            <rect x="-1.5" y="30.34" width="1.5" height="7.32" class="goal" />
+            <rect x="105" y="30.34" width="1.5" height="7.32" class="goal" />
+          </g>
+          <g id="trail"></g>
+          <g id="tags"></g>
+          <circle id="ball" cx="52.5" cy="34" r="1.1" />
+        </svg>
+        <div class="event-line" id="eventLine">Press “Kick off” to stream a synthetic match.</div>
+      </div>
+
+      <div class="meters">
+        <div class="meter">
+          <div class="meter-label"><span>Momentum (last 5 min)</span><span id="momVal">0</span></div>
+          <div class="bar diverging"><div class="fill" id="momFill"></div><div class="mid"></div></div>
+        </div>
+        <div class="meter">
+          <div class="meter-label"><span>Control ↔ Chaos</span><span id="chaosVal">0.00</span></div>
+          <div class="bar"><div class="fill chaos" id="chaosFill"></div></div>
+        </div>
+        <div class="meter">
+          <div class="meter-label"><span>Possession</span><span id="possVal">50 / 50</span></div>
+          <div class="bar split"><div class="fill home-fill" id="possFill"></div></div>
+        </div>
+      </div>
+
+      <table class="stats" id="statsTable">
+        <thead><tr><th id="thHome">Home</th><th></th><th id="thAway">Away</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="personas" id="personas"></section>
+
+    <section class="trace">
+      <h3>Agent trace <small>interpreter → explainer → narrator → personalizer → renderer</small></h3>
+      <div class="trace-stats" id="traceStats"></div>
+      <ol id="traceList"></ol>
+    </section>
+  </main>
+
+  <template id="personaTpl">
+    <article class="persona">
+      <header>
+        <input class="p-label" value="Viewer" aria-label="Persona name" />
+        <span class="p-count">0 moments</span>
+      </header>
+      <div class="p-controls">
+        <label>Mode <select class="p-mode"><option value="analyst">Analyst</option><option value="casual">Casual fan</option></select></label>
+        <label>Club <select class="p-team"><option value="">Neutral</option></select></label>
+        <label>Focus <select class="p-player"><option value="">No player</option></select></label>
+        <label>Language <select class="p-lang">
+          <option value="en">English</option><option value="es">Español</option><option value="fr">Français</option>
+          <option value="pt">Português</option><option value="hi">हिन्दी</option><option value="ar">العربية</option>
+        </select></label>
+        <label>Metric <select class="p-metric">
+          <option value="xg">xG</option><option value="possession">Possession</option>
+          <option value="pass_accuracy">Passing</option><option value="pressure">Pressing</option>
+          <option value="distance">Physical</option>
+        </select></label>
+      </div>
+      <div class="onair empty"><div class="onair-inner"><span class="onair-tag">ON AIR</span><h4>Waiting for kickoff</h4><p></p><div class="rows"></div></div></div>
+      <ol class="feed"></ol>
+    </article>
+  </template>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

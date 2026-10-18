@@ -272,3 +272,34 @@ def test_vision_training_pipeline_runs(tmp_path):
 
     m = train([301, 302], [303], out=tmp_path / "m.json")
     assert (tmp_path / "m.json").exists() and len(m["weights"]) == 13 and 0 < m["threshold"] < 1
+
+
+async def test_fan_lines_are_localised_offline():
+    _meta, out = await _run(lambda m: [Persona(id=f"fan_{lang}", mode="casual", favorite_team_id=m.home.id, language=lang)
+                                      for lang in ("es", "fr", "hi")], ResilientLLM(None))
+    ovs = [m["overlay"] for m in out if m["type"] == "overlay" and m["overlay"]["kind"] != "player_tag"]
+    for lang, marker in (("es", "¡"), ("fr", " !"), ("hi", "।")):
+        mine = [o for o in ovs if o["persona_id"] == f"fan_{lang}"]
+        assert mine and all(o["language"] == lang for o in mine)
+        assert any(marker in o["body"] for o in mine)
+
+
+async def test_persona_change_repersonalises_recent_moments():
+    meta, events = generate_match(7)
+    out = []
+
+    async def pub(m):
+        out.append(m)
+
+    orch = Orchestrator(meta, [Persona(id="v", mode="analyst")], pub, llm=ResilientLLM(None))
+    for e in events[:1200]:
+        await orch.on_event(e)
+        await asyncio.sleep(0)
+    await orch.drain()
+    fan = Persona(id="v", mode="casual", favorite_team_id=meta.away.id, language="es")
+    orch.update_persona(fan)
+    redone = await orch.reapply(fan)
+    assert 0 < len(redone) <= 8
+    assert all(o["persona_id"] == "v" and o["data"]["restyled"] and o["data"]["mode"] == "casual" for o in redone)
+    assert all(o["language"] == "es" for o in redone)
+    assert [o["t_match"] for o in redone] == sorted(o["t_match"] for o in redone)

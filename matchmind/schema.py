@@ -162,6 +162,7 @@ class PersonalizedNarrative(BaseModel):
     body: str
     language: str
     relevance: float
+    evidence: list[str] = Field(default_factory=list)
     source: Literal["llm", "rules"] = "rules"
 
 

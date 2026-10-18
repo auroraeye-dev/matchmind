@@ -11,6 +11,14 @@
 
   const rec = { events: [], overlays: [], moments: [] };
   let heat = {};
+  let heatDirty = false;
+  const HEAT_TYPES = new Set(["pass", "carry", "shot", "tackle", "interception", "pressure"]); // on-ball actions, no set pieces
+  // home attacks +x in the first half; flip the other cases so every heatmap reads "attacking →"
+  function attackRight(ev) {
+    const home = ev.team_id === C().meta.home.id;
+    const flip = (home && ev.period === 2) || (!home && ev.period === 1);
+    return flip ? [105 - ev.x, 68 - ev.y] : [ev.x, ev.y];
+  }
   let lastCamRender = 0;
 
   // ---------------------------------------------------------------- lifecycle hooks (called by app.js)
@@ -18,6 +26,7 @@
     rec.events = []; rec.overlays = []; rec.moments = []; heat = {};
     $("#flowMarks").innerHTML = "";
     $("#heatLayer").innerHTML = "";
+    heatDirty = false;
     closeTheatre();
     fillPersonaSelect($("#theatrePersona"));
     fillPersonaSelect($("#bcPersona"));
@@ -28,7 +37,12 @@
   function onEvent(msg) {
     rec.events.push(msg);
     const ev = msg.event;
-    if (ev.player_id && ev.x != null) (heat[ev.player_id] ||= []).push([ev.x, ev.y]);
+    if (ev.player_id && ev.x != null && ev.team_id && HEAT_TYPES.has(ev.type)) {
+      const p = attackRight(ev);
+      (heat[ev.player_id] ||= []).push(p);
+      (heat[`team:${ev.team_id}`] ||= []).push(p);
+      heatDirty = true;
+    }
     if (ev.type === "goal") goalFlash(ev);
     if (!$("#broadcast").hidden) { drawOn("b", ev); updateBug("#bbug", msg); }
     const pid = followedId();
@@ -50,7 +64,39 @@
     if (KEY_TYPES.has(m.type) && (m.type !== "momentum_swing" || m.importance >= 0.55)) addMarker(m);
   }
 
-  function onTab(view) { if (view === "heat") renderHeat($("#heatLayer"), followedId(), 4, 0.14); }
+  function onTab(view) {
+    if (view !== "heat") return;
+    heatLegend();
+    drawMainHeat();
+  }
+  function heatSubject() {
+    const sel = $("#heatWho");
+    if (sel && sel.value) return sel.value;
+    return followedId() || `team:${C().meta.home.id}`;
+  }
+  function heatLegend() {
+    const { home, away } = C().meta;
+    const pid = followedId();
+    const cur = $("#heatWho")?.value || (pid ? pid : `team:${home.id}`);
+    const opts = [
+      pid && [pid, `${C().players[pid].name} (followed)`],
+      [`team:${home.id}`, `${home.name} · all players`],
+      [`team:${away.id}`, `${away.name} · all players`],
+    ].filter(Boolean);
+    $("#pitchLegend").innerHTML = `<label class="heat-who">Heatmap of <select id="heatWho">${opts.map(([v, l]) =>
+      `<option value="${esc(v)}" ${v === cur ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
+      <span>attacking →</span><span class="heat-scale"><i></i>fewer → more touches</span><span id="heatCount"></span>`;
+    $("#heatWho").addEventListener("change", drawMainHeat);
+  }
+  function drawMainHeat() {
+    const who = heatSubject();
+    renderHeat($("#heatLayer"), who);
+    const n = (heat[who] || []).length;
+    const c = $("#heatCount");
+    if (c) c.textContent = n ? `${n} touches` : "no touches yet: kick off first";
+  }
+  // keep the main heatmap live while its tab is open
+  setInterval(() => { if (heatDirty && $(".tab.active")?.dataset.view === "heat") { heatDirty = false; drawMainHeat(); } }, 1000);
 
   // ---------------------------------------------------------------- helpers
   function fillPersonaSelect(sel) {
@@ -324,18 +370,58 @@
   }
 
   // ---------------------------------------------------------------- player cam
-  function renderHeat(g, pid, r, op) {
+  const NX = 21, NY = 14, CW = 105 / NX, CH = 68 / NY;
+  const RAMP = [[0, [255, 237, 160]], [0.35, [254, 178, 76]], [0.65, [240, 59, 32]], [1, [189, 0, 38]]];
+  function ramp(t) {
+    for (let i = 1; i < RAMP.length; i++) {
+      if (t <= RAMP[i][0]) {
+        const [t0, c0] = RAMP[i - 1], [t1, c1] = RAMP[i];
+        const f = (t - t0) / (t1 - t0);
+        return `rgb(${c0.map((c, k) => Math.round(c + (c1[k] - c) * f)).join(",")})`;
+      }
+    }
+    return "rgb(189,0,38)";
+  }
+  function renderHeat(g, key) {
     g.innerHTML = "";
-    if (!pid || !heat[pid]) return;
-    const color = teamColor(C().players[pid].team.id);
-    g.innerHTML = heat[pid].map(([x, y]) => `<circle class="heat" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r}" fill="${color}" opacity="${op}"></circle>`).join("")
-      + (() => { const [x, y] = heat[pid][heat[pid].length - 1]; return `<circle cx="${x}" cy="${y}" r="1.4" fill="#fff" stroke="#000" stroke-width=".3"></circle>`; })();
+    const pts = heat[key];
+    if (!key || !pts || !pts.length) return;
+    const grid = Array.from({ length: NY }, () => new Float32Array(NX));
+    for (const [x, y] of pts) {
+      const i = Math.min(NX - 1, Math.max(0, Math.floor(x / CW))), j = Math.min(NY - 1, Math.max(0, Math.floor(y / CH)));
+      grid[j][i] += 1;
+    }
+    // 3x3 smoothing kernel so sparse touches still read as zones
+    const K = [[1, 2, 1], [2, 4, 2], [1, 2, 1]];
+    const sm = Array.from({ length: NY }, () => new Float32Array(NX));
+    let max = 0;
+    for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+      let v = 0;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const jj = j + dj, ii = i + di;
+        if (jj >= 0 && jj < NY && ii >= 0 && ii < NX) v += grid[jj][ii] * K[dj + 1][di + 1];
+      }
+      sm[j][i] = v; max = Math.max(max, v);
+    }
+    const fid = `${g.id || "h"}Blur`;
+    let out = `<defs><filter id="${fid}" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="2.2"/></filter></defs><g filter="url(#${fid})">`;
+    for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+      const t = max ? Math.sqrt(sm[j][i] / max) : 0; // sqrt lifts mid-intensity zones
+      if (t < 0.12) continue;
+      out += `<rect x="${(i * CW).toFixed(2)}" y="${(j * CH).toFixed(2)}" width="${(CW + 0.2).toFixed(2)}" height="${(CH + 0.2).toFixed(2)}" fill="${ramp(t)}" opacity="${(0.25 + 0.65 * t).toFixed(2)}"/>`;
+    }
+    out += "</g>";
+    if (!key.startsWith("team:")) {
+      const [x, y] = pts[pts.length - 1];
+      out += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="1.5" fill="#fff" stroke="#0a1630" stroke-width=".4"><title>latest touch</title></circle>`;
+    }
+    g.innerHTML = out;
   }
 
   function renderPlayerCam() {
     const body = $("#playercamBody");
     const pid = followedId();
-    if ($(".tab.active")?.dataset.view === "heat") renderHeat($("#heatLayer"), pid, 4, 0.14);
+    if ($(".tab.active")?.dataset.view === "heat") { heatLegend(); drawMainHeat(); }
     if (!pid || !C().players[pid]) {
       body.className = "pc-empty";
       body.textContent = "No player followed yet. Pick one in the line-ups or a ticker's Follow menu to track them all match.";
@@ -374,7 +460,7 @@
         <rect x="0" y="13.84" width="16.5" height="40.32"/><rect x="88.5" y="13.84" width="16.5" height="40.32"/></g>
         <g id="pcHeat"></g>
       </svg>`;
-    renderHeat($("#pcHeat"), pid, 5, 0.16);
+    renderHeat($("#pcHeat"), pid);
   }
 
   // re-render the player cam whenever a viewer changes who they follow

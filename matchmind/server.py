@@ -51,6 +51,15 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="MatchMind", version="0.2.0", lifespan=lifespan)
 app.mount("/mcp", mcp_app)
+
+
+@app.middleware("http")
+async def no_stale_assets(request, call_next):
+    """Browsers must revalidate the UI on every load, so a redeploy is picked up immediately."""
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 setup_telemetry()
 settings = get_settings()
 llm = ResilientLLM(build_provider(settings), settings.llm_timeout_s, settings.llm_max_concurrency)
@@ -108,7 +117,9 @@ async def live(ws: WebSocket):
             msg = await ws.receive_json()
             kind = msg.get("type")
             if kind == "persona":
-                orch.update_persona(Persona(**msg["persona"]))
+                p = Persona(**msg["persona"])
+                orch.update_persona(p)
+                await publish({"type": "persona_applied", "persona": p.model_dump(), "overlays": await orch.reapply(p)})
             elif kind == "speed":
                 control["speed"] = max(1.0, min(600.0, float(msg["speed"])))
             elif kind in ("pause", "resume"):

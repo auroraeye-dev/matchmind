@@ -49,6 +49,7 @@ class Orchestrator:
         self.publish = publish
         self.pending: set[asyncio.Task] = set()
         self.traces: list[TraceRecord] = []
+        self.history: list[tuple[Moment, Any, Any]] = []  # recent (moment, explanation, narration) for re-personalising
 
     @property
     def state(self):
@@ -56,6 +57,24 @@ class Orchestrator:
 
     def update_persona(self, p: Persona) -> None:
         self.personas[p.id] = p
+
+    async def reapply(self, p: Persona, limit: int = 8) -> list[dict[str, Any]]:
+        """Re-personalise this viewer's recent moments right away, so a settings change is visible instantly."""
+        t0 = time.perf_counter()
+        s = self.state
+        picked = [(m, x, n) for m, x, n in reversed(self.history) if wants(m, p)[0]][:limit]
+        overlays: list[dict[str, Any]] = []
+        for m, x, n in reversed(picked):
+            pn = rules_personalize(m, x, n, p, s, wants(m, p)[1])
+            if self.translator and p.language != "en" and pn.language != p.language:
+                pn = await self._translate(m, p, pn)
+            for ov in self.renderer.render(m, pn, p, s):
+                ov.data["restyled"] = True
+                overlays.append(ov.model_dump(mode="json"))
+        await self._trace(TraceRecord(agent="personalizer", moment_id=None, persona_id=p.id, status="ok", source="rules",
+                                      ms=(time.perf_counter() - t0) * 1000,
+                                      note=f"settings changed: re-personalised {len(picked)} recent moments"))
+        return overlays
 
     # ------------------------------------------------------------------ ingest
 
@@ -90,6 +109,7 @@ class Orchestrator:
                                   lambda: self.explainer.run(m, s), lambda: rules_explain(m, s))
             n = await self._stage("narrator", m, None, shed,
                                   lambda: self.narrator.run(m, x, s), lambda: rules_narrate(m, x, s))
+            self.history = [*self.history[-59:], (m, x, n)]
 
             async def per_persona(p: Persona) -> None:
                 ok, rel = wants(m, p)

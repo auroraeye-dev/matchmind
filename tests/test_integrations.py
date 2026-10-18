@@ -136,7 +136,7 @@ async def test_translator_and_orchestrator_translation():
     async def pub(m):
         out.append(m)
 
-    orch = Orchestrator(meta, [Persona(id="f", mode="casual", language="fr")], pub, llm=ResilientLLM(None), translator=tr)
+    orch = Orchestrator(meta, [Persona(id="f", mode="analyst", language="fr")], pub, llm=ResilientLLM(None), translator=tr)
     for e in events:
         await orch.on_event(e)
         await asyncio.sleep(0)

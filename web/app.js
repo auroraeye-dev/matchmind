@@ -14,7 +14,7 @@
     { id: "fan", label: "Home fan", mode: "casual", language: "en", metric: "possession", favorite_team_id: "__home" },
   ];
 
-  let ws = null, meta = null, paused = false, lastScore = "0-0", sessionId = null;
+  let ws = null, meta = null, paused = false, lastScore = "0-0", sessionId = null, lastStats = null;
   let players = {}, pstats = {}, flowPts = [], shots = [], eventCount = 0;
   const panes = {};
   const agentCounts = {};
@@ -43,6 +43,7 @@
   // ---------------------------------------------------------------- setup
   function setupMatch(m) {
     meta = m;
+    lastStats = null;
     players = {}; pstats = {}; flowPts = []; shots = []; eventCount = 0; lastScore = "0-0";
     for (const t of [m.home, m.away]) for (const p of t.players) {
       players[p.id] = { ...p, team: t };
@@ -103,6 +104,7 @@
       $(".t-label", el).addEventListener("input", () => sendPersona(p.id));
       host.appendChild(el);
       panes[p.id] = { el, persona: p, count: 0, timer: null };
+      decorate(p.id);
     }
   }
   function fillPlayers(sel, teamId) {
@@ -122,7 +124,13 @@
       language: $(".p-lang", el).value, metric: $(".p-metric", el).value,
     };
   }
-  function sendPersona(id) { if (ws?.readyState === 1) ws.send(JSON.stringify({ type: "persona", persona: readPersona(id) })); }
+  function sendPersona(id) {
+    decorate(id);
+    if (ws?.readyState === 1) {
+      panes[id].el.classList.add("applying");
+      ws.send(JSON.stringify({ type: "persona", persona: readPersona(id) }));
+    }
+  }
 
   // ---------------------------------------------------------------- lineups
   function renderLineups() {
@@ -173,6 +181,7 @@
     if (msg.type === "event") { onEvent(msg); X("onEvent", msg); }
     else if (msg.type === "overlay") { onOverlay(msg.overlay); X("onOverlay", msg.overlay); }
     else if (msg.type === "moment") X("onMoment", msg.moment);
+    else if (msg.type === "persona_applied") onPersonaApplied(msg);
     else if (msg.type === "trace") onTrace(msg.trace);
     else if (msg.type === "meta") {
       setLlm(msg.llm);
@@ -219,7 +228,11 @@
     const ph = stats.possession_pct[h] ?? 50, p5 = stats.possession_5m[h] ?? 50;
     $("#possFill").style.width = `${ph}%`; $("#possVal").textContent = `${ph.toFixed(0)} – ${(100 - ph).toFixed(0)}`;
     $("#poss5Fill").style.width = `${p5}%`; $("#poss5Val").textContent = `${p5.toFixed(0)} – ${(100 - p5).toFixed(0)}`;
-    if (eventCount % 6 === 0 || ev.type === "goal" || ev.type === "shot") renderStats(stats);
+    lastStats = stats;
+    if (eventCount % 6 === 0 || ev.type === "goal" || ev.type === "shot") {
+      renderStats(stats);
+      for (const id of Object.keys(panes)) metricBar(id, stats);
+    }
     if (eventCount % 25 === 0 || ev.type === "goal") renderPerformers();
   }
 
@@ -296,7 +309,7 @@
   function legend() {
     const view = $(".tab.active").dataset.view;
     if (view === "heat") {
-      $("#pitchLegend").innerHTML = `<span>Every touch of the followed player this match · brighter = more touches</span>`;
+      return; // extras.js owns the heatmap legend (it has a selector)
     } else if (view === "shots") {
       const sum = (tid) => shots.filter((s) => s.team_id === tid);
       const h = sum(meta.home.id), a = sum(meta.away.id);
@@ -371,15 +384,92 @@
     clearTimeout(pane.timer);
     pane.timer = setTimeout(() => onair.classList.add("idle"), ov.display_ms);
 
+    addFeedItem(pane, ov);
+  }
+
+  function addFeedItem(pane, ov) {
+    const el = pane.el, type = ov.data.moment_type || ov.kind;
+    const p = readPersona(pane.persona.id);
     const li = document.createElement("li");
-    if (type === "goal") li.className = "goal";
+    li.className = [type === "goal" && "goal", ov.data.favorite && "fav", ov.data.restyled && "restyled"].filter(Boolean).join(" ");
     li.dir = ov.language === "ar" ? "rtl" : "ltr";
+    const evidence = p.mode === "analyst" && ov.data.evidence ? `<div class="evidence">${ov.data.evidence.map((e) => `<span>${esc(e)}</span>`).join("")}</div>` : "";
+    const langPill = p.language !== "en" && ov.language === "en" ? `<span class="pill warn" title="Full analyst prose in other languages uses Microsoft Foundry or Azure AI Translator">EN text</span>` : "";
+    const meta = p.mode === "analyst"
+      ? `<span class="pill ${ov.source}">${ov.source === "llm" ? "AI" : "rules"}</span><span class="pill">relevance ${Number(ov.data.relevance ?? 0).toFixed(2)}</span>${langPill}`
+      : `${ov.data.favorite ? `<span class="pill fav">★ your club</span>` : ""}${ov.source === "llm" ? `<span class="pill llm">AI</span>` : ""}`;
     li.innerHTML = `<div class="minute">${esc(ov.clock.split(":")[0])}'<span class="ico">${ICON[type] || "•"}</span></div>
-      <div><div class="title">${esc(ov.title)}</div><div class="body">${esc(ov.body)}</div>
-      <div class="tags"><span class="pill ${ov.source}">${ov.source === "llm" ? "AI" : "rules"}</span><span class="pill">relevance ${Number(ov.data.relevance ?? 0).toFixed(2)}</span></div></div>`;
+      <div><div class="title">${esc(ov.title)}</div><div class="body">${esc(ov.body)}</div>${evidence}
+      <div class="tags">${meta}</div></div>`;
     const feed = $(".feed", el);
     feed.prepend(li);
     while (feed.childNodes.length > 80) feed.lastChild.remove();
+  }
+
+  // ---------------------------------------------------------------- persona decoration: settings visibly applied
+  const METRIC_LABEL = { xg: "xG", possession: "Possession", pass_accuracy: "Pass accuracy", pressure: "Pressing (PPDA)", distance: "Top sprint" };
+  const LANG_LABEL = { en: "EN", es: "ES", fr: "FR", pt: "PT", hi: "HI", ar: "AR" };
+  function decorate(id) {
+    const { el } = panes[id];
+    const p = readPersona(id);
+    const team = p.favorite_team_id ? [meta.home, meta.away].find((t) => t.id === p.favorite_team_id) : null;
+    el.classList.toggle("mode-analyst", p.mode === "analyst");
+    el.classList.toggle("mode-casual", p.mode === "casual");
+    el.style.setProperty("--accent", team ? team.color : "#0a1630");
+    const follow = p.focus_player_id && players[p.focus_player_id];
+    $(".t-chips", el).innerHTML = [
+      `<span class="chip-mode">${p.mode === "analyst" ? "Analyst view" : "Fan view"}</span>`,
+      team ? `<span class="chip-club" style="background:${team.color}">★ ${esc(team.short)}</span>` : `<span>Neutral</span>`,
+      `<span>${LANG_LABEL[p.language] || p.language}</span>`,
+      `<span>${METRIC_LABEL[p.metric]}</span>`,
+      follow ? `<span>👁 #${follow.number} ${esc(follow.name.split(" ").pop())}</span>` : "",
+    ].join("");
+    if (lastStats) metricBar(id, lastStats);
+  }
+  function metricBar(id, stats) {
+    const { el } = panes[id];
+    const p = readPersona(id);
+    const H = stats.teams[meta.home.id], A = stats.teams[meta.away.id];
+    const fmt = {
+      xg: [H.xg, A.xg, (v) => v.toFixed(2)],
+      possession: [stats.possession_pct[meta.home.id], stats.possession_pct[meta.away.id], (v) => `${v.toFixed(0)}%`],
+      pass_accuracy: [H.pass_accuracy * 100, A.pass_accuracy * 100, (v) => `${v.toFixed(0)}%`],
+      pressure: [H.ppda ?? 0, A.ppda ?? 0, (v) => v.toFixed(1)],
+      distance: [H.top_sprint_kmh || 0, A.top_sprint_kmh || 0, (v) => `${v.toFixed(1)}`],
+    }[p.metric];
+    const [h, a, f] = fmt;
+    const lowerBetter = p.metric === "pressure";
+    const share = h + a ? (lowerBetter ? a / (h + a) : h / (h + a)) * 100 : 50;
+    const fav = p.favorite_team_id;
+    let follow = "";
+    if (p.focus_player_id && pstats[p.focus_player_id]) {
+      const pl = players[p.focus_player_id], st = pstats[p.focus_player_id];
+      follow = `<div class="t-follow">👁 <b>#${pl.number} ${esc(pl.name)}</b> · ${st.touches} touches · ${st.pc} passes${st.shots ? ` · ${st.shots} shots (${st.xg.toFixed(2)} xG)` : ""}${st.goals ? ` · ⚽×${st.goals}` : ""}</div>`;
+    }
+    $(".t-metric", el).innerHTML = `<div class="tm-head"><span class="${fav === meta.home.id ? "fav" : ""}">${fav === meta.home.id ? "★ " : ""}${esc(meta.home.short)} ${f(h)}</span>
+      <em>${METRIC_LABEL[p.metric]}${lowerBetter ? " · lower = harder press" : ""}</em>
+      <span class="${fav === meta.away.id ? "fav" : ""}">${f(a)} ${esc(meta.away.short)}${fav === meta.away.id ? " ★" : ""}</span></div>
+      <div class="split small"><i style="width:${share}%"></i></div>${follow}`;
+  }
+  function onPersonaApplied(msg) {
+    const pane = panes[msg.persona.id];
+    if (!pane) return;
+    const feed = $(".feed", pane.el);
+    feed.innerHTML = "";
+    for (const ov of msg.overlays) addFeedItem(pane, ov);
+    pane.count = msg.overlays.length;
+    $(".t-count", pane.el).textContent = pane.count;
+    const onair = $(".onair", pane.el);
+    onair.classList.remove("idle", "goal"); void onair.offsetWidth;
+    $(".onair-meta", onair).textContent = "Settings applied";
+    $("h4", onair).textContent = `✓ Now: ${pane.el.querySelector(".chip-mode").textContent}`;
+    $("p", onair).textContent = msg.overlays.length
+      ? `Re-told the last ${msg.overlays.length} moments for these settings. New moments follow them too.`
+      : "New moments will follow these settings.";
+    $(".rows", onair).innerHTML = "";
+    clearTimeout(pane.timer);
+    pane.timer = setTimeout(() => onair.classList.add("idle"), 4000);
+    pane.el.classList.remove("applying");
   }
   function tagBadge(d) {
     const t = d.trigger || [];

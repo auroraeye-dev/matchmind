@@ -271,7 +271,10 @@ input, select { background: #f6f8fc; border: 1px solid var(--line); border-radiu
 .flow-mark text { font: 11px var(--body); pointer-events: none; }
 
 /* ---------------------------------------------------------------- heatmap + tag badges */
-.heat { mix-blend-mode: screen; }
+.heat-who { display: flex; gap: 6px; align-items: center; font-weight: 600; }
+.heat-who select { font-size: 12px; padding: 3px 6px; }
+.heat-scale { display: inline-flex; align-items: center; gap: 6px; }
+.heat-scale i { width: 70px; height: 8px; border-radius: 4px; display: inline-block; margin: 0 !important; background: linear-gradient(90deg, rgb(255,237,160), rgb(254,178,76), rgb(240,59,32), rgb(189,0,38)); }
 .tag-badge { font: 800 1.7px var(--display); letter-spacing: .1px; }
 
 /* ---------------------------------------------------------------- player cam */
@@ -346,3 +349,33 @@ input, select { background: #f6f8fc; border: 1px solid var(--line); border-radiu
 @keyframes goalzoom { 0% { transform: scale(.4) rotate(-6deg); } 20% { transform: scale(1.08) rotate(1deg); } 30% { transform: scale(1); } 100% { transform: scale(1.04); } }
 @media (prefers-reduced-motion: reduce) { .goal-flash, .goal-flash span, .lower-third, .bc-ticker span, .feed li { animation: none !important; } }
 .reel-card[hidden], .lower-third[hidden], .scorebug:empty { display: none; }
+
+/* ---------------------------------------------------------------- persona: visible settings */
+.ticker { border-top: 5px solid var(--accent, var(--navy)); transition: border-color .3s; }
+.ticker.applying { opacity: .7; }
+.ticker.applying .feed { filter: blur(1px); }
+.t-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px 0; }
+.t-chips span { font: 700 11px/1 var(--display); text-transform: uppercase; letter-spacing: .08em; padding: 5px 8px; border-radius: 999px; background: #eef2fa; color: var(--ink-2); }
+.t-chips .chip-mode { background: var(--navy); color: #fff; }
+.mode-casual .t-chips .chip-mode { background: var(--gold); color: #1a1300; }
+.t-chips .chip-club { color: #fff; }
+.t-metric { margin: 10px 14px 0; padding: 10px 12px; border-radius: 10px; background: #f6f8fc; border: 1px solid var(--line); }
+.tm-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font: 800 18px/1 var(--display); font-variant-numeric: tabular-nums; }
+.tm-head em { font: 600 11px/1.2 var(--display); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-style: normal; text-align: center; }
+.tm-head .fav { color: var(--accent); }
+.split.small { height: 6px; margin-top: 8px; }
+.t-follow { margin-top: 8px; font-size: 12px; color: var(--ink-2); }
+.evidence { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.evidence span { font: 600 11px/1 var(--body); background: #e8eefb; color: #1e3a8a; padding: 4px 6px; border-radius: 4px; font-variant-numeric: tabular-nums; }
+.pill.warn { background: #fff4d6; color: #8a5a00; }
+.pill.fav { background: var(--accent); color: #fff; }
+.feed li.fav { border-left: 3px solid var(--accent); padding-left: 6px; }
+.feed li.restyled { animation: restyle .6s ease-out; }
+@keyframes restyle { from { background: #fff6cc; } to { background: transparent; } }
+/* fan view: bigger, simpler, more emotional */
+.mode-casual .feed .title { font-size: 19px; }
+.mode-casual .feed .body { font-size: 15px; color: var(--ink); }
+.mode-casual .minute .ico { font-size: 24px; }
+.mode-casual .onair { background: linear-gradient(115deg, var(--accent, var(--navy)), #12224a 85%); }
+/* analyst view: denser */
+.mode-analyst .feed .body { font-size: 12.5px; }

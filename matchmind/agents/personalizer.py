@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 
 from matchmind.agents.interpreter import MatchState
-from matchmind.i18n import LANGUAGES, label
+from matchmind.i18n import LANGUAGES, casual_line, label
 from matchmind.llm.guardrails import enforce
 from matchmind.llm.provider import ResilientLLM
 from matchmind.schema import Explanation, Moment, Narration, Persona, PersonalizedNarrative
@@ -69,47 +69,32 @@ def _sentiment(m: Moment, p: Persona) -> int:
     return 0
 
 
-CASUAL_LINES = {
-    ("goal", 1): "Get in! {who} scores for {team}!",
-    ("goal", -1): "Ouch. {who} scores for {team}.",
-    ("goal", 0): "{who} scores for {team}!",
-    ("big_chance", 1): "So close! {who} nearly scores for {team}.",
-    ("big_chance", -1): "Phew, that was close. {who} nearly scored for {team}.",
-    ("big_chance", 0): "Huge chance for {who}!",
-    ("momentum_swing", 1): "{team} are on top right now. Keep it up!",
-    ("momentum_swing", -1): "{team} are piling on the pressure. Hold on!",
-    ("momentum_swing", 0): "{team} are on top right now.",
-    ("card", 1): "{who} goes into the book.",
-    ("card", -1): "{who} is booked. Careful now!",
-    ("card", 0): "Yellow card for {who}.",
-}
+def _goal_list(m: Moment) -> str:
+    return ", ".join(m.evidence.get("goals", []))
 
 
 def rules_personalize(m: Moment, x: Explanation, n: Narration, p: Persona, s: MatchState, rel: float) -> PersonalizedNarrative:
-    who, team = s.name(m.player_id), s.team_name(m.team_id)
+    who = s.name(m.player_id) if m.player_id else s.team_name(m.team_id)
+    team = s.team_name(m.team_id) if m.team_id else ""
+    score = m.evidence.get("score", s.scoreline())
     tag = label(m.type, p.language)
+    star = "⭐ " if involved(m, p.focus_player_id) else ""
     if p.mode == "analyst":
-        headline = f"{tag} · {x.headline}" if p.language != "en" else x.headline
-        body = x.why
-        if x.evidence:
-            body += "  [" + " · ".join(x.evidence) + "]"
-        if m.type in ("half_time", "full_time"):
-            body = n.text + ("  [" + " · ".join(x.evidence) + "]" if x.evidence else "")
+        # Analysts get the full reasoning; numbers travel separately as evidence chips.
+        headline = star + (f"{tag} · {x.headline}" if p.language != "en" else x.headline)
+        body = n.text if m.type in ("half_time", "full_time") else x.why
+        language = "en"  # full analyst prose in other languages needs Foundry or Azure AI Translator
     else:
         sent = _sentiment(m, p)
-        line = CASUAL_LINES.get((m.type, sent))
-        headline = tag
-        if m.type in ("half_time", "full_time"):
-            body = n.text.split(". Standout")[0]
-        elif line:
-            body = line.format(who=who, team=team)
-            if m.type == "goal":
-                body += f" {m.evidence.get('score', s.scoreline())}."
-        else:
-            body = x.why.split(". ")[0].rstrip(".") + "."
+        body, language = casual_line(m.type, sent, p.language, who=who, team=team, score=score)
+        if m.type in ("half_time", "full_time") and m.evidence.get("goals"):
+            body += f" ⚽ {_goal_list(m)}"
+        if not body:
+            body, language = x.why.split(". ")[0].rstrip(".") + ".", "en"
+        headline = star + tag
     return PersonalizedNarrative(
-        moment_id=m.id, persona_id=p.id, headline=headline, body=body,
-        language=p.language if p.language == "en" else "en", relevance=rel, source="rules",
+        moment_id=m.id, persona_id=p.id, headline=headline, body=body, evidence=list(x.evidence) if p.mode == "analyst" else [],
+        language=language, relevance=rel, source="rules",
     )
 
 
@@ -139,6 +124,6 @@ class Personalizer:
         return PersonalizedNarrative(
             moment_id=m.id, persona_id=p.id,
             headline=str(out.get("headline") or base.headline)[:90],
-            body=str(out.get("body") or base.body)[:600],
+            body=str(out.get("body") or base.body)[:600], evidence=base.evidence,
             language=p.language, relevance=rel, source="llm",
         )

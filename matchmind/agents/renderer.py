@@ -40,7 +40,10 @@ class Renderer:
 
     def render(self, m: Moment, pn: PersonalizedNarrative, p: Persona, s: MatchState) -> list[Overlay]:
         kind = "recap" if m.type in ("half_time", "full_time") else "stat_card" if m.type == "stat_check" else "lower_third"
-        data: dict = {"moment_type": m.type, "relevance": pn.relevance, "team_id": m.team_id}
+        data: dict = {"moment_type": m.type, "relevance": pn.relevance, "team_id": m.team_id,
+                      "mode": p.mode, "favorite": bool(p.favorite_team_id and m.team_id == p.favorite_team_id)}
+        if pn.evidence:
+            data["evidence"] = pn.evidence
         if kind in ("stat_card", "recap") or (p.mode == "analyst" and "tactical" in m.tags):
             data["rows"] = _metric_rows(s, p.metric)
             data["metric"] = p.metric

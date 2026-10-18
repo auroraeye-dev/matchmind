@@ -303,3 +303,10 @@ async def test_persona_change_repersonalises_recent_moments():
     assert all(o["persona_id"] == "v" and o["data"]["restyled"] and o["data"]["mode"] == "casual" for o in redone)
     assert all(o["language"] == "es" for o in redone)
     assert [o["t_match"] for o in redone] == sorted(o["t_match"] for o in redone)
+
+
+def test_guardrail_ignores_confidence_and_window():
+    from matchmind.llm.guardrails import check_grounded
+
+    payload = {"evidence": {"shots_5min": 2, "possession_last_5min_pct": 62}}
+    assert check_grounded({"why": "62% of the ball over the last 5 minutes", "confidence": 0.86}, payload) == []

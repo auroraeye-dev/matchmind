@@ -14,8 +14,11 @@ from typing import Any
 from matchmind.llm.provider import LLMUnavailable
 
 _NUM = re.compile(r"(?<![\w.])\d+(?:[.,]\d+)?")
-# Numbers that are safe without grounding: small counts and football time conventions.
-_SAFE = {0.0, 1.0, 2.0, 3.0, 45.0, 90.0}
+# Numbers that are safe without grounding: small counts, football time conventions and the
+# Interpreter's 5-minute analysis window (named in payload keys like shots_5min).
+_SAFE = {0.0, 1.0, 2.0, 3.0, 5.0, 45.0, 90.0}
+# Answer fields that are metadata about the answer, not claims about the match.
+_META_KEYS = {"confidence"}
 
 
 class UngroundedOutput(LLMUnavailable):
@@ -45,7 +48,8 @@ def check_grounded(answer: dict[str, Any], payload: Any, tol: float = 0.051) -> 
     """Returns the ungrounded numbers in `answer` (empty list = grounded)."""
     allowed = _allowed(payload)
     bad = []
-    for v in numbers(json.dumps(answer, default=str, ensure_ascii=False)):
+    claims = {k: v for k, v in answer.items() if k not in _META_KEYS}
+    for v in numbers(json.dumps(claims, default=str, ensure_ascii=False)):
         if v in _SAFE:
             continue
         if not any(abs(v - a) <= max(tol, abs(a) * 0.006) or round(a) == v for a in allowed):

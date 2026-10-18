@@ -158,6 +158,7 @@ cp .env.example .env     # set FOUNDRY_PROJECT_ENDPOINT and FOUNDRY_MODEL, then 
 ```bash
 python -m matchmind.cli generate --seeds 1 7 42 --out data/            # synthetic datasets (JSONL)
 python -m matchmind.cli run --seed 7 --mode casual --team NBR --lang es # headless pipeline
+python -m matchmind.cli summary --seed 7                               # final score, xG and top moments
 python -m matchmind.cli eval-autoevent                                  # Vision agent accuracy
 python -m matchmind.cli train-vision                                    # retrain the shot classifier
 pip install -e ".[copilot]" && python -m matchmind.cli report --seed 7 --gist   # Copilot SDK report

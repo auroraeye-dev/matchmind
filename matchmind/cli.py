@@ -88,6 +88,23 @@ def cmd_report(args: argparse.Namespace) -> None:
         print("gist:", publish_gist(path, public=args.public))
 
 
+def cmd_summary(args: argparse.Namespace) -> None:
+    from matchmind.mcp_server import get_match_state, list_moments
+
+    state = get_match_state(seed=args.seed)
+    moments = list_moments(seed=args.seed, limit=5)
+
+    print(f"Final score: {state['score']}")
+    print("xG:")
+    for team, stats in state["teams"].items():
+        print(f"  {team}: {stats['xg']:.2f}")
+    print("Top 5 moments:")
+    for moment in moments:
+        details = " — ".join(part for part in (moment["team"], moment["player"]) if part)
+        suffix = f" — {details}" if details else ""
+        print(f"  {moment['clock']} {moment['type']}{suffix}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(prog="matchmind")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -118,6 +135,9 @@ def main() -> None:
     rp.add_argument("--gist", action="store_true", help="publish with the GitHub CLI (gh gist create)")
     rp.add_argument("--public", action="store_true")
     rp.set_defaults(func=cmd_report)
+    s = sub.add_parser("summary", help="print the final score, team xG and top moments")
+    s.add_argument("--seed", type=int, default=7)
+    s.set_defaults(func=cmd_summary)
     args = ap.parse_args()
     args.func(args)
 

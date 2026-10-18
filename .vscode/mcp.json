@@ -3,8 +3,7 @@
     "matchmind": {
       "type": "stdio",
       "command": "${workspaceFolder}/.venv/bin/python",
-      "args": ["-m", "matchmind.mcp_server"],
-      "cwd": "${workspaceFolder}"
+      "args": ["-m", "matchmind.mcp_server"]
     },
     "matchmind-cloud": {
       "type": "http",

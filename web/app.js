@@ -219,7 +219,7 @@
 
     const who = players[ev.player_id]?.name || "";
     const extra = derived.pass_difficulty != null ? ` · ${derived.pass_length_m} m · difficulty ${derived.pass_difficulty}` : ev.xg != null ? ` · xG ${ev.xg}` : ev.ball_speed_kmh ? ` · ${ev.ball_speed_kmh.toFixed(0)} km/h` : "";
-    $("#eventLine").textContent = `${ev.clock}  ${ev.type.replace(/_/g, " ")}${ev.outcome ? ` (${ev.outcome.replace("_", " ")})` : ""} · ${who}${extra}${ev.extra?.detected ? " · auto-detected" : ""}`;
+    if (!$("#eventLine").classList.contains("hint")) $("#eventLine").textContent = `${ev.clock}  ${ev.type.replace(/_/g, " ")}${ev.outcome ? ` (${ev.outcome.replace("_", " ")})` : ""} · ${who}${extra}${ev.extra?.detected ? " · auto-detected" : ""}`;
 
     const chaos = stats.chaos;
     $("#chaosFill").style.left = `calc(${chaos * 100}% - 2px)`;

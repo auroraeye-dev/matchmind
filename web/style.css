@@ -379,3 +379,9 @@ input, select { background: #f6f8fc; border: 1px solid var(--line); border-radiu
 .mode-casual .onair { background: linear-gradient(115deg, var(--accent, var(--navy)), #12224a 85%); }
 /* analyst view: denser */
 .mode-analyst .feed .body { font-size: 12.5px; }
+
+/* momentum timeline: minutes not played yet can't be replayed */
+.flow-future { fill: rgba(255,255,255,.035); pointer-events: none; }
+#flow.future-hover { cursor: not-allowed; }
+#flow.future-hover .flow-cursor { opacity: 0 !important; }
+.event-line.hint { color: var(--red); font-weight: 600; }

@@ -25,6 +25,7 @@
   function reset() {
     rec.events = []; rec.overlays = []; rec.moments = []; heat = {};
     $("#flowMarks").innerHTML = "";
+    $("#flowFuture")?.remove();
     $("#heatLayer").innerHTML = "";
     heatDirty = false;
     closeTheatre();
@@ -36,6 +37,7 @@
 
   function onEvent(msg) {
     rec.events.push(msg);
+    if (rec.events.length % 4 === 1 || msg.event.type === "full_time") updateFuture();
     const ev = msg.event;
     if (ev.player_id && ev.x != null && ev.team_id && HEAT_TYPES.has(ev.type)) {
       const p = attackRight(ev);
@@ -133,15 +135,40 @@
     g.addEventListener("click", (e) => { e.stopPropagation(); openReplay(m); });
     $("#flowMarks").appendChild(g);
   }
-  $("#flow").addEventListener("mousemove", (e) => {
+  // Only minutes that have already been played can be replayed.
+  const playedX = () => (rec.events.length ? C().flowX(rec.events[rec.events.length - 1].event) : -1);
+  const flowXAt = (e) => {
     const box = $("#flow").getBoundingClientRect();
-    const x = ((e.clientX - box.left) / box.width) * 960;
+    return box.width > 0 ? ((e.clientX - box.left) / box.width) * 960 : Infinity; // a hidden chart can't be clicked into the past
+  };
+  function updateFuture() {
+    let r = $("#flowFuture");
+    if (!r) {
+      r = document.createElementNS(SVGNS, "rect");
+      r.id = "flowFuture"; r.setAttribute("class", "flow-future"); r.setAttribute("y", "0"); r.setAttribute("height", "120");
+      $("#flow").insertBefore(r, $("#flowCursor"));
+    }
+    const x = Math.max(0, playedX());
+    r.setAttribute("x", x.toFixed(1)); r.setAttribute("width", Math.max(0, 960 - x).toFixed(1));
+  }
+  function flowHint(text) {
+    const line = $("#eventLine");
+    line.textContent = text;
+    line.classList.add("hint");
+    clearTimeout(flowHint.t);
+    flowHint.t = setTimeout(() => line.classList.remove("hint"), 2500);
+  }
+  $("#flow").addEventListener("mousemove", (e) => {
+    const x = flowXAt(e);
+    const future = x > playedX() + 4;
+    $("#flow").classList.toggle("future-hover", future);
     $("#flowCursor").setAttribute("x1", x); $("#flowCursor").setAttribute("x2", x);
   });
+  $("#flow").addEventListener("mouseleave", () => $("#flow").classList.remove("future-hover"));
   $("#flow").addEventListener("click", (e) => {
-    if (!rec.events.length) return;
-    const box = $("#flow").getBoundingClientRect();
-    const x = ((e.clientX - box.left) / box.width) * 960;
+    if (!rec.events.length) { flowHint("Kick off a match first: replays are built from what has been played."); return; }
+    const x = flowXAt(e);
+    if (x > playedX() + 4) { flowHint("That part of the match hasn't been played yet. Click anywhere up to the live minute to replay it."); return; }
     let best = rec.events[0], bd = Infinity;
     for (const msg of rec.events) {
       const d = Math.abs(C().flowX(msg.event) - x);

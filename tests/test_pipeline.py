@@ -334,3 +334,32 @@ def test_sessions_beyond_ai_cap_run_on_rules(monkeypatch):
         first = ws.receive_json()
         assert first["type"] == "meta" and first["llm"]["provider"] == "offline"
     assert server.live_sessions == {"all": 0, "ai": 0}
+
+
+def test_abandoned_sessions_release_their_slot(monkeypatch):
+    """Closing the tab mid-match, or leaving it paused, must free the session slot."""
+    import time as _time
+
+    from matchmind import server
+
+    monkeypatch.setattr(server, "PAUSE_TIMEOUT_S", 0.5)
+    client = TestClient(server.app)
+    # 1) viewer closes the tab mid-match
+    with client.websocket_connect("/ws/live") as ws:
+        ws.send_json({"seed": 3, "speed": 50, "personas": [{"id": "a", "mode": "analyst"}]})
+        for _ in range(20):
+            ws.receive_json()
+    # 2) viewer pauses and walks away
+    with client.websocket_connect("/ws/live") as ws:
+        ws.send_json({"seed": 4, "speed": 50, "personas": [{"id": "a", "mode": "analyst"}]})
+        ws.receive_json()
+        ws.send_json({"type": "pause"})
+        from starlette.websockets import WebSocketDisconnect
+
+        with pytest.raises(WebSocketDisconnect):  # the server closes a session left paused too long
+            for _ in range(10_000):
+                ws.receive_json()
+    deadline = _time.time() + 10
+    while server.live_sessions != {"all": 0, "ai": 0} and _time.time() < deadline:
+        _time.sleep(0.2)
+    assert server.live_sessions == {"all": 0, "ai": 0}

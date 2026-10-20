@@ -8,9 +8,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from mcp.server.transport_security import TransportSecuritySettings
@@ -31,6 +32,11 @@ from matchmind.telemetry import setup_telemetry
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 MAX_GAP_S = 1.2  # never wait longer than this between events, whatever the speed
+# Session hygiene for a long-running public demo: a viewer who closes the tab, loses the
+# connection or leaves a match paused must never hold a slot forever.
+SEND_TIMEOUT_S = float(os.getenv("SEND_TIMEOUT_S", "15"))
+PAUSE_TIMEOUT_S = float(os.getenv("PAUSE_TIMEOUT_S", "600"))
+MAX_SESSION_S = float(os.getenv("MAX_SESSION_S", "2700"))
 
 # MCP over streamable HTTP at /mcp. Hosts are restricted via MCP_ALLOWED_HOSTS in production.
 _hosts = [h for h in os.getenv("MCP_ALLOWED_HOSTS", "").split(",") if h]
@@ -129,7 +135,8 @@ async def _live(ws: WebSocket, session_llm: ResilientLLM) -> None:
         if sinks.enabled:
             sinks.offer({**msg, "match_id": meta.match_id})
         async with lock:
-            await ws.send_json(msg)
+            # a dead connection must not block the session forever
+            await asyncio.wait_for(ws.send_json(msg), SEND_TIMEOUT_S)
 
     orch = Orchestrator(meta, personas, publish, settings=settings, llm=session_llm, translator=translator)
     await publish({"type": "meta", "meta": meta.model_dump(mode="json"), "llm": session_llm.status(), "feed": feed,
@@ -149,6 +156,7 @@ async def _live(ws: WebSocket, session_llm: ResilientLLM) -> None:
                 control["paused"] = kind == "pause"
 
     read_task = asyncio.create_task(reader())
+    started = time.monotonic()
     try:
         prev_t = 0.0
         for ev in _source(sim, vision, seed):
@@ -158,18 +166,27 @@ async def _live(ws: WebSocket, session_llm: ResilientLLM) -> None:
                     note=f"{vision.detected} events auto-detected from tracking frames").model_dump(mode="json")})
             gap = (ev.t - prev_t) / control["speed"]
             await asyncio.sleep(min(MAX_GAP_S, max(0.0, gap)))
-            while control["paused"]:
+            paused_at = time.monotonic()
+            while control["paused"] and not read_task.done():
+                if time.monotonic() - paused_at > PAUSE_TIMEOUT_S:
+                    raise TimeoutError("paused too long")
                 await asyncio.sleep(0.2)
+            if read_task.done() or time.monotonic() - started > MAX_SESSION_S:
+                break
             prev_t = ev.t
             await orch.on_event(ev)
             if read_task.done():
                 break
-        await orch.drain()
-        await publish({"type": "end", "llm": session_llm.status()})
-    except (WebSocketDisconnect, RuntimeError):
+        if not read_task.done():  # the viewer is still connected: finish cleanly
+            await orch.drain()
+            await publish({"type": "end", "llm": session_llm.status()})
+    except Exception:
         pass
     finally:
         read_task.cancel()
+        for task in list(orch.pending):
+            task.cancel()
+        session.finished = True
         with contextlib.suppress(Exception):
             await ws.close()
 

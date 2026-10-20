@@ -40,7 +40,11 @@ resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: 'log-matchmind-${token}'
   location: location
   tags: tags
-  properties: { sku: { name: 'PerGB2018' }, retentionInDays: 30 }
+  properties: {
+    sku: { name: 'PerGB2018' }
+    retentionInDays: 30
+    workspaceCapping: { dailyQuotaGb: json('0.1') }  // hard cap: stays inside the free ingestion allowance
+  }
 }
 
 resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
@@ -211,6 +215,7 @@ var envVars = concat([
   { name: 'FOUNDRY_PROJECT_ENDPOINT', value: 'https://${foundry.properties.customSubDomainName}.services.ai.azure.com/api/projects/${foundryProject.name}' }
   { name: 'FOUNDRY_MODEL', value: modelName }
   { name: 'LLM_TIMEOUT_S', value: '20' }
+  { name: 'LLM_DAILY_CALL_BUDGET', value: '600' }  // cost guard for the public demo; past it agents use rules
   { name: 'AZURE_CLIENT_ID', value: identity.properties.clientId }
   { name: 'COSMOS_ENDPOINT', value: cosmos.properties.documentEndpoint }
   { name: 'COSMOS_DATABASE', value: 'matchmind' }
